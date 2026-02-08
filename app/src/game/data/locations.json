@@ -1,0 +1,39 @@
+[
+  {
+    "id": "L1_SCRAPHEAP_AWAKENING",
+    "stage": 1,
+    "name": "The Scrapheap Awakening",
+    "flavor": "“The Golem stirs amidst the rusted remains of its predecessors. Systems are coming online, but the frame is stiff and uncoordinated.”",
+    "rule": "System Warm-up: The first Undershoot of this Chapter does not penalize the draw phase; the Golem is still finding its momentum.",
+    "rewards": ["Self-Repair: Heal the Golem for 1 HP (Max 5)."],
+    "compulsoryPartIds": ["static_core", "numb_leg"],
+    "optionalPartIds": ["aux_battery", "fuse"],
+    "effects": []
+  },
+  {
+    "id": "L1_WHISPERING_MIRE",
+    "stage": 1,
+    "name": "The Whispering Mire",
+    "flavor": "“A thick, acidic fog clings to the Golem’s joints. Visibility is low, and every step requires precise thermal management to avoid a meltdown.”",
+    "rule": "Acidic Haze: A player cannot refill their hand if they play an Acid (Green) card, even if the group succeeds or they match the suit.",
+    "rewards": ["Self-Repair: Heal the Golem for 1 HP (Max 5)."],
+    "compulsoryPartIds": ["numb_leg", "muddled_sensors"],
+    "optionalPartIds": ["cooling_fan"],
+    "effects": []
+  },
+  {
+    "id": "L1_SHATTERED_ASCENT",
+    "stage": 1,
+    "name": "The Shattered Ascent",
+    "flavor": "“The path turns vertical. Gravity is a constant enemy, and the Golem must divert all power to its pistons to clear the jagged peaks.”",
+    "rule": "Gravitational Pull: If no player matches the Terrain suit during a Pulse, the group must immediately add +1 Heat as the Golem struggles to maintain its position.",
+    "rewards": [
+      "Self-Repair: Heal the Golem for 1 HP (Max 5).",
+      "Mulligan Token: Gain a shared token that allows one player to discard their entire hand and draw back to capacity at any time."
+    ],
+    "compulsoryPartIds": ["cracked_pistons", "heavy_chassis"],
+    "optionalPartIds": ["sharp_eye", "aux_battery", "fuse"],
+    "effects": []
+  }
+]
+

@@ -25,7 +25,7 @@ import {
   type GameSummary,
 } from "../lib/firestoreGames";
 import { useAuthUser } from "../lib/useAuth";
-import { getLocationById, LOCATIONS_L1, type LocationCard } from "../game/locations";
+import { getLocationById, getLocationsForStage, type LocationCard } from "../game/locations";
 import { DeckStub, PulseCardMini, PulseCardPreview, TerrainCardView } from "../components/game/PulseCards";
 import { LocationChoiceCard } from "../components/game/LocationChoiceCard";
 import { PartChoiceCard } from "../components/game/PartChoiceCard";
@@ -103,6 +103,14 @@ export default function Game() {
       (e) => setErr(String(e))
     );
   }, [gameId]);
+
+  useEffect(() => {
+    if (!gameId) return;
+    if (!game) return;
+    if (game.status === "completed") {
+      nav(`/game/${gameId}/post`);
+    }
+  }, [game, gameId, nav]);
 
   const players = (game?.players ?? {}) as Players;
   const mySlot = useMemo(() => (uid && game ? getMySlot(players, uid) : null), [uid, game, players]);
@@ -437,7 +445,7 @@ export default function Game() {
   const stage = game.chapter ?? 1;
 
   const location = getLocationById(game.locationId ?? null);
-  const locationOptions = (game.locationOptions ?? LOCATIONS_L1.map((l) => l.id))
+  const locationOptions = (game.locationOptions ?? getLocationsForStage(game.chapter ?? 1).map((l) => l.id))
     .map((id) => getLocationById(id))
     .filter(Boolean) as LocationCard[];
 
@@ -881,33 +889,49 @@ export default function Game() {
                         </div>
 
                         <div className="mt-2 grid min-h-0 grid-cols-3 gap-2">
-                          {SLOTS.map((s) => {
-                            const entry = played[s];
-                            const seatUid = players[s] ?? "";
-                            const seatName = seatUid ? playerLabel(seatUid, game.playerNames) : seatLabel(s);
-                            const canSwapHere = Boolean(
-                              pulsePhase === "actions" && uid && gameId && game.reservoir && canControlSeat(game, uid, s)
-                            );
-                            const fused = entry?.valueOverride === 0;
-                            const canFuseHere = Boolean(fuseAvailable && !fused && entry?.card);
+	                          {SLOTS.map((s) => {
+	                            const entry = played[s];
+	                            const seatUid = players[s] ?? "";
+	                            const seatName = seatUid ? playerLabel(seatUid, game.playerNames) : seatLabel(s);
+	                            const showFaceUpInSelection = Boolean(
+	                              entry?.card &&
+	                                pulsePhase === "selection" &&
+	                                uid &&
+	                                (seatUid === uid || (isHost && isBotUid(seatUid) && activeSeat === s))
+	                            );
+	                            const canSwapHere = Boolean(
+	                              pulsePhase === "actions" && uid && gameId && game.reservoir && canControlSeat(game, uid, s)
+	                            );
+	                            const fused = entry?.valueOverride === 0;
+	                            const canFuseHere = Boolean(fuseAvailable && !fused && entry?.card);
                             return (
                               <div key={s} className="relative rounded-2xl bg-white/5 p-3 ring-1 ring-white/10">
                                 <div className="flex items-center justify-between gap-0">
                                   <div className="min-w-0 truncate text-[11px] font-semibold text-white/70">
                                     {seatLabel(s)} • {seatName}
                                   </div>
-                                  <div className="text-[10px] font-semibold text-white/45">
-                                    {entry?.card ? (pulsePhase === "selection" ? "Covered" : "Revealed") : "—"}
-                                  </div>
-                                </div>
-                                <div className="mt-2 flex items-center justify-center">
-                                  {entry?.card ? (
-                                    pulsePhase === "selection" ? (
-                                      <div className="h-[110px] w-[80px] rounded-xl bg-gradient-to-b from-slate-700/40 to-slate-950 shadow-xl ring-1 ring-white/10" />
-                                    ) : (
-                                      <div className="flex flex-row items-center gap-1">
-                                        <div className="relative pt-2">
-                                          <PulseCardMini card={entry.card} selected={false} lift="none" onClick={() => {}} />
+	                                  <div className="text-[10px] font-semibold text-white/45">
+	                                    {entry?.card
+	                                      ? pulsePhase === "selection"
+	                                        ? showFaceUpInSelection
+	                                          ? "Your card"
+	                                          : "Covered"
+	                                        : "Revealed"
+	                                      : "—"}
+	                                  </div>
+	                                </div>
+	                                <div className="mt-2 flex items-center justify-center">
+	                                  {entry?.card ? (
+	                                    pulsePhase === "selection" ? (
+	                                      showFaceUpInSelection ? (
+	                                        <PulseCardMini card={entry.card} selected={false} lift="none" onClick={() => {}} />
+	                                      ) : (
+	                                        <div className="h-[110px] w-[80px] rounded-xl bg-gradient-to-b from-slate-700/40 to-slate-950 shadow-xl ring-1 ring-white/10" />
+	                                      )
+	                                    ) : (
+	                                      <div className="flex flex-row items-center gap-1">
+	                                        <div className="relative pt-2">
+	                                          <PulseCardMini card={entry.card} selected={false} lift="none" onClick={() => {}} />
                                           {fused && (
                                             <div className="pointer-events-none absolute bottom-2 right-2 rounded-full bg-fuchsia-500/30 px-2 py-0.5 text-[11px] font-extrabold text-fuchsia-100 ring-1 ring-fuchsia-200/20">
                                               0

@@ -77,6 +77,7 @@ export type GameDoc = {
   startedAt?: any; // serverTimestamp
   startedBy?: string;
   completedAt?: any; // serverTimestamp
+  endedReason?: "win" | "loss";
 
   // Campaign skeleton (v0)
   locationId?: string;

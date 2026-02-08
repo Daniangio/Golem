@@ -5,6 +5,7 @@ import { auth } from "./firebase";
 import Auth from "./pages/Auth";
 import Lobby from "./pages/Lobby";
 import Game from "./pages/Game";
+import PostGame from "./pages/PostGame";
 import Profile from "./pages/Profile";
 import { useAuthUser } from "./lib/useAuth";
 import { ensureUserProfile } from "./lib/users";
@@ -102,6 +103,14 @@ export default function App() {
               element={
                 <RequireAuth>
                   <Game />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/game/:gameId/post"
+              element={
+                <RequireAuth>
+                  <PostGame />
                 </RequireAuth>
               }
             />

@@ -56,7 +56,7 @@ export function LocationChoiceCard({
           <div className="absolute inset-0 rounded-3xl bg-gradient-to-b from-slate-950 to-slate-900 p-5 shadow-xl ring-1 ring-white/10 [transform:rotateY(180deg)] [backface-visibility:hidden]">
             <div className="flex items-center justify-between">
               <div className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white/80">
-                {location.level === 1 ? "Level 1" : `Level ${location.level}`}
+                {location.stage === 1 ? "Stage 1" : `Stage ${location.stage}`}
               </div>
               <div className="text-xs font-semibold text-white/60">Click to flip</div>
             </div>
@@ -127,4 +127,3 @@ export function LocationChoiceCard({
     </div>
   );
 }
-
