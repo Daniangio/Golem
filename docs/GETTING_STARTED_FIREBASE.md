@@ -27,6 +27,15 @@ firebase use --add
 ```
 This updates `.firebaserc`.
 
+Verify Firebase CLI is pointing at the right project:
+```bash
+firebase use
+```
+If it prints something like `main` (and `firebase deploy` fails with “Failed to get Firebase project main”), switch back to the repo’s configured alias:
+```bash
+firebase use default
+```
+
 ## 4) Add your Firebase Web App config to `app/.env.local`
 In Firebase Console:
 Project settings → General → Your apps → **Web app** → Config
@@ -66,6 +75,10 @@ VITE_USE_EMULATORS=true
 ```
 in `app/.env.local`.
 
+Important for deploy:
+- Keep `VITE_USE_EMULATORS=true` for local dev, but **production builds never connect to emulators**.
+- If you deploy with emulators enabled, Auth requests may go to paths like `/identitytoolkit.googleapis.com/...` on your Hosting domain and fail.
+
 If you are developing via a remote VM/dev-container (port forwarding), this repo proxies emulator traffic through the Vite dev server, so the browser does not need direct access to emulator ports (19099/8080).
 
 Note: when `VITE_USE_EMULATORS=true`, run the app via `npm run dev` (Vite). If you instead open the Hosting Emulator URL (typically `http://127.0.0.1:5000`), emulator proxying is not active.
@@ -79,6 +92,10 @@ npm run build
 Deploy:
 ```bash
 firebase deploy
+```
+Tip: you can also pin the project explicitly (useful if you have multiple Firebase projects):
+```bash
+firebase deploy --project golem-journey
 ```
 
 Your app will be available at:
@@ -104,6 +121,15 @@ Pending:
 - Bot behavior via Cloud Functions (may require Blaze plan for deployment)
 
 ## Troubleshooting
+### `firebase deploy` fails with “Failed to get Firebase project main”
+This means the Firebase CLI is trying to deploy to a project ID/alias called `main` (which usually doesn’t exist).
+
+Fix (repo root):
+```bash
+firebase use default
+firebase deploy
+```
+
 ### `accounts:lookup` returns 400 in the browser console
 If you see a request like:
 `/identitytoolkit.googleapis.com/v1/accounts:lookup ... 400 (Bad Request)`

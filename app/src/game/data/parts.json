@@ -32,35 +32,34 @@
     "name": "Muddled Sensors",
     "type": "compulsory",
     "text": "Passive. The assigned player must play their first card face-down before the Terrain card for the next Step is revealed.",
-    "effects": []
+    "effects": [{ "type": "hide_terrain_until_played" }]
   },
   {
     "id": "cooling_fan",
     "name": "Cooling Fan",
     "type": "optional",
     "text": "Passive. When this player plays a Steam card, it reduces Heat by 1.",
-    "effects": []
+    "effects": [{ "type": "heat_delta_if_played_suit", "suit": "steam", "amount": -1 }]
   },
   {
     "id": "cracked_pistons",
     "name": "Cracked Pistons",
     "type": "compulsory",
     "text": "Passive. If the group Undershoots, this player has to discard an extra card from his hand.",
-    "effects": []
+    "effects": [{ "type": "discard_cards_on_undershoot", "count": 1 }]
   },
   {
     "id": "heavy_chassis",
     "name": "Heavy Chassis",
     "type": "compulsory",
     "text": "Passive. This player’s cards always count as +2 value.",
-    "effects": []
+    "effects": [{ "type": "pulse_value_delta", "amount": 2 }]
   },
   {
     "id": "sharp_eye",
     "name": "Sharp Eye",
     "type": "optional",
     "text": "Passive. This player may secretly inspect the 5 Terrain cards of the current Chapter at any time, including before the reveal phase.",
-    "effects": []
+    "effects": [{ "type": "peek_terrain_deck" }]
   }
 ]
-

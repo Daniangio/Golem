@@ -16,7 +16,10 @@ export const auth = getAuth(app);
 export const db = getFirestore(app);
 
 export function maybeConnectEmulators() {
-  const useEmu = import.meta.env.VITE_USE_EMULATORS === "true";
+  // Safety: never connect to emulators in production builds.
+  // If we do, the SDK will try to call paths like `/identitytoolkit.googleapis.com/...` on the
+  // current origin (Firebase Hosting), which gets rewritten to `/index.html` and breaks auth.
+  const useEmu = import.meta.env.DEV && import.meta.env.VITE_USE_EMULATORS === "true";
   if (!useEmu) return;
 
   // Prevent double connections with Vite HMR.

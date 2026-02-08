@@ -78,13 +78,30 @@ export function TerrainCardView({ suit, min, max }: { suit: Exclude<PulseSuit, "
   );
 }
 
-export function DeckStub({ label, count }: { label: string; count: number }) {
-  return (
-    <div className="relative h-[110px] w-[80px] rounded-xl bg-gradient-to-b from-slate-700/40 to-slate-950 p-4 shadow-xl ring-1 ring-white/10">
+export function DeckStub({
+  label,
+  count,
+  onClick,
+}: {
+  label: string;
+  count: number;
+  onClick?: () => void;
+}) {
+  const cls =
+    "relative h-[110px] w-[80px] rounded-xl bg-gradient-to-b from-slate-700/40 to-slate-950 p-4 shadow-xl ring-1 ring-white/10";
+  const inner = (
+    <>
       <div className="text-[11px] font-semibold text-white/60">{label}</div>
       <div className="mt-1 text-l font-extrabold text-white">{count}</div>
       <div className="mt-1 text-xs text-white/60">cards</div>
-    </div>
+      {onClick && <div className="mt-2 text-[10px] font-semibold text-white/50">Click to peek</div>}
+    </>
+  );
+
+  if (!onClick) return <div className={cls}>{inner}</div>;
+  return (
+    <button type="button" onClick={onClick} className={`${cls} text-left transition hover:ring-white/20`}>
+      {inner}
+    </button>
   );
 }
-

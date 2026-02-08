@@ -38,7 +38,7 @@ export type TerrainCard = {
   max: number;
 };
 
-export type PulsePhase = "selection" | "actions";
+export type PulsePhase = "pre_selection" | "selection" | "actions";
 
 export type ChapterAbilityUsed = Partial<
   Record<
@@ -49,6 +49,8 @@ export type ChapterAbilityUsed = Partial<
     }
   >
 >;
+
+export type ChapterGlobalUsed = Partial<Record<string, boolean>>;
 
 export type PlayedCard = {
   card: PulseCard;
@@ -101,6 +103,7 @@ export type GameDoc = {
   pulsePhase?: PulsePhase;
   played?: PlayedCards;
   chapterAbilityUsed?: ChapterAbilityUsed; // once-per-chapter part abilities
+  chapterGlobalUsed?: ChapterGlobalUsed; // once-per-chapter global/location effects
   lastOutcome?: {
     result: "success" | "undershoot" | "overshoot";
     total: number;

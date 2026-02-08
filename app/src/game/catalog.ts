@@ -1,6 +1,7 @@
 import locationsRaw from "./data/locations.json";
 import partsRaw from "./data/parts.json";
 import upgradesRaw from "./data/upgrades.json";
+import type { PulseSuit } from "../types";
 
 export type PartType = "compulsory" | "optional";
 
@@ -8,7 +9,17 @@ export type Effect =
   | { type: "hand_capacity_delta"; amount: number; scope: "chapter" }
   | { type: "disable_match_refill_on_failure" }
   | { type: "once_per_chapter_extra_card_after_reveal" }
-  | { type: "once_per_chapter_fuse_to_zero_after_reveal" };
+  | { type: "once_per_chapter_fuse_to_zero_after_reveal" }
+  // Parts
+  | { type: "pulse_value_delta"; amount: number }
+  | { type: "heat_delta_if_played_suit"; suit: Exclude<PulseSuit, "prism">; amount: number }
+  | { type: "discard_cards_on_undershoot"; count: number }
+  | { type: "peek_terrain_deck" }
+  | { type: "hide_terrain_until_played" }
+  // Locations
+  | { type: "first_undershoot_refill_all" }
+  | { type: "no_refill_if_played_suit"; suit: Exclude<PulseSuit, "prism"> }
+  | { type: "heat_if_no_terrain_match"; amount: number };
 
 export type PartDef = {
   id: string;

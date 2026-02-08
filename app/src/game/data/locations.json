@@ -8,7 +8,7 @@
     "rewards": ["Self-Repair: Heal the Golem for 1 HP (Max 5)."],
     "compulsoryPartIds": ["static_core", "numb_leg"],
     "optionalPartIds": ["aux_battery", "fuse"],
-    "effects": []
+    "effects": [{ "type": "first_undershoot_refill_all" }]
   },
   {
     "id": "L1_WHISPERING_MIRE",
@@ -19,7 +19,7 @@
     "rewards": ["Self-Repair: Heal the Golem for 1 HP (Max 5)."],
     "compulsoryPartIds": ["numb_leg", "muddled_sensors"],
     "optionalPartIds": ["cooling_fan"],
-    "effects": []
+    "effects": [{ "type": "no_refill_if_played_suit", "suit": "acid" }]
   },
   {
     "id": "L1_SHATTERED_ASCENT",
@@ -33,7 +33,6 @@
     ],
     "compulsoryPartIds": ["cracked_pistons", "heavy_chassis"],
     "optionalPartIds": ["sharp_eye", "aux_battery", "fuse"],
-    "effects": []
+    "effects": [{ "type": "heat_if_no_terrain_match", "amount": 1 }]
   }
 ]
-

@@ -25,7 +25,7 @@ import {
   type GameSummary,
 } from "../lib/firestoreGames";
 import { useAuthUser } from "../lib/useAuth";
-import { getLocationById, getLocationsForStage, type LocationCard } from "../game/locations";
+import { getLocationById, getLocationsForStage, getPartById, type LocationCard } from "../game/locations";
 import { DeckStub, PulseCardMini, PulseCardPreview, TerrainCardView } from "../components/game/PulseCards";
 import { LocationChoiceCard } from "../components/game/LocationChoiceCard";
 import { PartChoiceCard } from "../components/game/PartChoiceCard";
@@ -91,6 +91,7 @@ export default function Game() {
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [showDiscardModal, setShowDiscardModal] = useState(false);
   const [showLogModal, setShowLogModal] = useState(false);
+  const [showTerrainModal, setShowTerrainModal] = useState(false);
 
   const [game, setGame] = useState<GameSummary | null | undefined>(undefined);
   const [err, setErr] = useState<string | null>(null);
@@ -505,9 +506,13 @@ export default function Game() {
   const terrain = terrainDeck[terrainIndex] ?? null;
   const terrainRemaining = Math.max(0, terrainDeck.length - (terrainIndex + 1));
   const pulsePhase = game.pulsePhase ?? "selection";
+  const isPreSelection = pulsePhase === "pre_selection";
 
   const selectedName = selectedUid ? playerLabel(selectedUid, game.playerNames) : "Empty";
   const selectedPartId = game.partPicks?.[selectedSeat] ?? null;
+  const selectedPartDef = getPartById(selectedPartId);
+  const selectedPartEffects = selectedPartDef?.effects ?? [];
+  const selectedHasEffect = (type: string) => selectedPartEffects.some((e: any) => e && e.type === type);
   const selectedPartDetail = (() => {
     if (!location || !selectedPartId) return null;
     const all = [...location.compulsory, ...location.optional];
@@ -517,8 +522,27 @@ export default function Game() {
 
   const seatList = SLOTS;
   const canActForSelected = Boolean(uid && canControlSeat(game, uid, selectedSeat));
-  const canPlayFromSelected =
-    Boolean(gameId && uid && canActForSelected && actingSeat && actingSeat === selectedSeat && pulsePhase === "selection");
+  const seatHasEffect = (seat: PlayerSlot, effectType: string): boolean => {
+    const pid = game.partPicks?.[seat] ?? null;
+    const def = getPartById(pid);
+    const eff = def?.effects ?? [];
+    return eff.some((e: any) => e && e.type === effectType);
+  };
+  const preSelectionSeats = SLOTS.filter((s) => seatHasEffect(s, "hide_terrain_until_played"));
+  const preSelectionDone = preSelectionSeats.every((s) => Boolean(played[s]?.card));
+
+  const canPlayFromSelected = Boolean(
+    gameId &&
+      uid &&
+      canActForSelected &&
+      actingSeat &&
+      actingSeat === selectedSeat &&
+      (pulsePhase === "selection"
+        ? !preSelectionSeats.length || preSelectionDone
+        : pulsePhase === "pre_selection"
+          ? preSelectionSeats.includes(selectedSeat) && !played[selectedSeat]?.card
+          : false)
+  );
   const canAuxBatteryFromSelected = Boolean(
     gameId &&
       uid &&
@@ -537,6 +561,7 @@ export default function Game() {
   );
 
   const selectedAbilityUsed = game.chapterAbilityUsed?.[selectedSeat] ?? {};
+  const chapterGlobalUsed = game.chapterGlobalUsed ?? {};
   const selectedPartToken = (() => {
     if (!selectedPartId) return null;
     if (selectedPartId === "aux_battery") {
@@ -550,6 +575,19 @@ export default function Game() {
     if (selectedPartId === "numb_leg") return { label: "Passive", tone: "muted" } as const;
     if (selectedPartId === "static_core") return { label: "Passive", tone: "muted" } as const;
     return null;
+  })();
+
+  const locationTokens = (() => {
+    if (!location?.effects?.length) return [];
+    const out: Array<{ key: string; label: string; tone: "good" | "muted" }> = [];
+    for (const e of location.effects as any[]) {
+      if (!e?.type) continue;
+      if (e.type === "first_undershoot_refill_all") {
+        const used = Boolean(chapterGlobalUsed.first_undershoot_refill_all);
+        out.push({ key: e.type, label: used ? "Warm-up used" : "Warm-up ready", tone: used ? "muted" : "good" });
+      }
+    }
+    return out;
   })();
 
   return (
@@ -676,13 +714,29 @@ export default function Game() {
                       </div>
                     ) : null}
                   </div>
-                  {location ? (
-                    <>
-                      <div className="mt-2 text-lg font-extrabold tracking-tight text-white">{location.name}</div>
-                      <div className="mt-2 text-xs leading-relaxed text-white/75">{location.rule}</div>
-                      {location.rewards?.length ? (
-                        <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-white/70">
-                          {location.rewards.slice(0, 4).map((r) => (
+	                  {location ? (
+	                    <>
+	                      <div className="mt-2 text-lg font-extrabold tracking-tight text-white">{location.name}</div>
+	                      {locationTokens.length ? (
+	                        <div className="mt-2 flex flex-wrap gap-2">
+	                          {locationTokens.map((t) => (
+	                            <span
+	                              key={t.key}
+	                              className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ${
+	                                t.tone === "good"
+	                                  ? "bg-emerald-400/15 text-emerald-100 ring-emerald-200/20"
+	                                  : "bg-white/10 text-white/60 ring-white/10"
+	                              }`}
+	                            >
+	                              {t.label}
+	                            </span>
+	                          ))}
+	                        </div>
+	                      ) : null}
+	                      <div className="mt-2 text-xs leading-relaxed text-white/75">{location.rule}</div>
+	                      {location.rewards?.length ? (
+	                        <ul className="mt-3 list-disc space-y-1 pl-5 text-xs text-white/70">
+	                          {location.rewards.slice(0, 4).map((r) => (
                             <li key={r}>{r}</li>
                           ))}
                         </ul>
@@ -797,16 +851,43 @@ export default function Game() {
                         <div className="flex items-center justify-between gap-2">
                           <div className="text-xs font-semibold text-white/70">Terrain</div>
                           <div className="text-[11px] font-semibold text-white/50">{terrainRemaining} left</div>
-                        </div>
-                        <div className="mt-3 flex flex-wrap items-center gap-3">
-                          <DeckStub label="Deck" count={terrainRemaining} />
-                          {terrain ? (
-                            <TerrainCardView suit={terrain.suit} min={terrain.min} max={terrain.max} />
-                          ) : (
-                            <div className="text-sm text-white/60">No terrain.</div>
-                          )}
-                        </div>
-                      </div>
+	                        </div>
+	                        <div className="mt-3 flex flex-wrap items-center gap-3">
+		                          <DeckStub
+		                            label="Deck"
+		                            count={terrainRemaining}
+		                            onClick={
+		                              !isPreSelection &&
+		                              terrainDeck.length &&
+		                              selectedHasEffect("peek_terrain_deck") &&
+		                              canActForSelected
+		                                ? () => setShowTerrainModal(true)
+		                                : undefined
+		                            }
+		                          />
+		                          {terrain ? (
+		                            isPreSelection ? (
+		                              <div className="relative h-[110px] w-[80px] rounded-xl bg-gradient-to-b from-slate-700/40 to-slate-950 p-4 shadow-xl ring-1 ring-white/10">
+		                                <div className="text-[11px] font-semibold text-white/60">Unrevealed</div>
+		                                <div className="mt-2 text-sm font-extrabold text-white">???</div>
+		                                <div className="mt-2 text-[10px] text-white/60">Pre-selection</div>
+		                              </div>
+		                            ) : selectedHasEffect("hide_terrain_until_played") &&
+		                              pulsePhase === "selection" &&
+		                              !played[selectedSeat]?.card ? (
+		                              <div className="relative h-[110px] w-[80px] rounded-xl bg-gradient-to-b from-slate-700/40 to-slate-950 p-4 shadow-xl ring-1 ring-white/10">
+		                                <div className="text-[11px] font-semibold text-white/60">Hidden</div>
+		                                <div className="mt-2 text-sm font-extrabold text-white">???</div>
+		                                <div className="mt-2 text-[10px] text-white/60">Play first</div>
+		                              </div>
+		                            ) : (
+		                              <TerrainCardView suit={terrain.suit} min={terrain.min} max={terrain.max} />
+		                            )
+		                          ) : (
+		                            <div className="text-sm text-white/60">No terrain.</div>
+		                          )}
+	                        </div>
+	                      </div>
 
                       <div className="rounded-3xl bg-white/5 p-3 ring-1 ring-white/10">
                         <div className="flex items-center justify-between gap-2">
@@ -891,14 +972,14 @@ export default function Game() {
                         <div className="mt-2 grid min-h-0 grid-cols-3 gap-2">
 	                          {SLOTS.map((s) => {
 	                            const entry = played[s];
-	                            const seatUid = players[s] ?? "";
-	                            const seatName = seatUid ? playerLabel(seatUid, game.playerNames) : seatLabel(s);
-	                            const showFaceUpInSelection = Boolean(
-	                              entry?.card &&
-	                                pulsePhase === "selection" &&
-	                                uid &&
-	                                (seatUid === uid || (isHost && isBotUid(seatUid) && activeSeat === s))
-	                            );
+		                            const seatUid = players[s] ?? "";
+		                            const seatName = seatUid ? playerLabel(seatUid, game.playerNames) : seatLabel(s);
+		                            const showFaceUpInSelection = Boolean(
+		                              entry?.card &&
+		                                (pulsePhase === "selection" || pulsePhase === "pre_selection") &&
+		                                uid &&
+		                                (seatUid === uid || (isHost && isBotUid(seatUid) && activeSeat === s))
+		                            );
 	                            const canSwapHere = Boolean(
 	                              pulsePhase === "actions" && uid && gameId && game.reservoir && canControlSeat(game, uid, s)
 	                            );
@@ -910,19 +991,19 @@ export default function Game() {
                                   <div className="min-w-0 truncate text-[11px] font-semibold text-white/70">
                                     {seatLabel(s)} • {seatName}
                                   </div>
-	                                  <div className="text-[10px] font-semibold text-white/45">
-	                                    {entry?.card
-	                                      ? pulsePhase === "selection"
-	                                        ? showFaceUpInSelection
-	                                          ? "Your card"
-	                                          : "Covered"
-	                                        : "Revealed"
+		                                  <div className="text-[10px] font-semibold text-white/45">
+		                                    {entry?.card
+		                                      ? pulsePhase === "selection" || pulsePhase === "pre_selection"
+		                                        ? showFaceUpInSelection
+		                                          ? "Your card"
+		                                          : "Covered"
+		                                        : "Revealed"
 	                                      : "—"}
 	                                  </div>
 	                                </div>
 	                                <div className="mt-2 flex items-center justify-center">
-	                                  {entry?.card ? (
-	                                    pulsePhase === "selection" ? (
+		                                  {entry?.card ? (
+		                                    pulsePhase === "selection" || pulsePhase === "pre_selection" ? (
 	                                      showFaceUpInSelection ? (
 	                                        <PulseCardMini card={entry.card} selected={false} lift="none" onClick={() => {}} />
 	                                      ) : (
@@ -1215,6 +1296,54 @@ export default function Game() {
                   ))}
                 </div>
               </div>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {showTerrainModal && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+          onMouseDown={() => setShowTerrainModal(false)}
+        >
+          <div
+            className="w-full max-w-3xl rounded-3xl bg-slate-950 p-5 text-white shadow-2xl ring-1 ring-white/10"
+            onMouseDown={(e) => e.stopPropagation()}
+          >
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-extrabold">Terrain deck</div>
+                <div className="mt-1 text-xs text-white/60">{terrainDeck.length} cards (ordered)</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowTerrainModal(false)}
+                className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white/80 hover:bg-white/15"
+              >
+                Close
+              </button>
+            </div>
+
+            <div className="mt-4 rounded-2xl bg-white/5 p-3 ring-1 ring-white/10">
+              {terrainDeck.length ? (
+                <div className="flex flex-wrap gap-3">
+                  {terrainDeck.map((t, idx) => (
+                    <div key={t.id} className="flex flex-col items-center gap-2">
+                      <div
+                        className={`text-[11px] font-semibold ${
+                          idx === terrainIndex ? "text-emerald-200" : "text-white/55"
+                        }`}
+                      >
+                        Step {idx + 1}
+                        {idx === terrainIndex ? " • current" : ""}
+                      </div>
+                      <TerrainCardView suit={t.suit} min={t.min} max={t.max} />
+                    </div>
+                  ))}
+                </div>
+              ) : (
+                <div className="text-sm text-white/60">No terrain deck.</div>
+              )}
             </div>
           </div>
         </div>
