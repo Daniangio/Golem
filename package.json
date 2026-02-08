@@ -1,0 +1,13 @@
+{
+  "name": "golem-journey",
+  "private": true,
+  "workspaces": [
+    "app"
+  ],
+  "scripts": {
+    "dev": "npm --workspace app run dev",
+    "build": "npm --workspace app run build",
+    "preview": "npm --workspace app run preview",
+    "emu": "firebase emulators:start --import=./.firebase-data --export-on-exit=./.firebase-data"
+  }
+}

@@ -205,3 +205,21 @@ cython_debug/
 marimo/_static/
 marimo/_lsp/
 __marimo__/
+
+# Node / Vite
+node_modules/
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
+.pnp.*
+
+# Vite build output
+dist/
+
+# Firebase emulator export
+.firebase-data/
+
+# Local env (Firebase config)
+.env.local
+.env.*.local
