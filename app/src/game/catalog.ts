@@ -44,6 +44,7 @@ export type LocationDef = {
   id: string;
   sphere: number;
   name: string;
+  image?: string;
   flavor: string;
   rule: string;
   rewards: string[];
@@ -63,6 +64,8 @@ export type LocationFaculty = {
 export type LocationCard = {
   id: string;
   name: string;
+  image?: string;
+  sphereImage?: string;
   flavor: string;
   sphere: number;
   compulsory: LocationFaculty[];
@@ -77,6 +80,7 @@ type LocationDefRaw = {
   stage?: number;
   sphere?: number;
   name: string;
+  image?: string;
   flavor: string;
   rule: string;
   rewards?: string[];
@@ -103,13 +107,40 @@ function toLocationFaculty(facultyId: string, type: FacultyType): LocationFacult
   return { id: f.id, name: f.name, type, effect: f.text, effects: f.effects ?? [] };
 }
 
+const SPHERE_IMAGE_BY_NUMBER: Record<number, string> = {
+  1: "/images/spheres/1-Malkuth.png",
+  2: "/images/spheres/2-Yesod.png",
+  3: "/images/spheres/3-Hod.png",
+  4: "/images/spheres/4-Netzach.png",
+  5: "/images/spheres/5-Tipharet.png",
+  6: "/images/spheres/6-Gevurah.png",
+  7: "/images/spheres/7-Chesed.png",
+  8: "/images/spheres/8-Binah.png",
+  9: "/images/spheres/9-Chokmah.png",
+  10: "/images/spheres/10-Kether.png",
+};
+
+function defaultLocationImagePath(sphere: number, name: string): string | null {
+  // Location images follow a convention like:
+  // "1-Malkuth-The Scrapheap Awakening.png" for name "Malkuth: The Scrapheap Awakening"
+  const parts = name.split(":");
+  if (parts.length < 2) return null;
+  const sphereName = parts[0]!.trim();
+  const locationName = parts.slice(1).join(":").trim();
+  if (!sphereName || !locationName) return null;
+  return `/images/locations/${sphere}-${sphereName}-${locationName}.png`;
+}
+
 function toLocation(def: LocationDefRaw): LocationCard {
   const sphere = def.sphere ?? def.stage ?? 1;
   const compulsory = def.compulsoryFacultyIds ?? def.compulsoryPartIds ?? [];
   const optional = def.optionalFacultyIds ?? def.optionalPartIds ?? [];
+  const image = def.image ?? defaultLocationImagePath(sphere, def.name) ?? undefined;
   return {
     id: def.id,
     name: def.name,
+    image,
+    sphereImage: SPHERE_IMAGE_BY_NUMBER[sphere],
     flavor: def.flavor,
     sphere,
     compulsory: compulsory.map((id) => toLocationFaculty(id, "compulsory")),

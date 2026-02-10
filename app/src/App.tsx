@@ -1,4 +1,4 @@
-import React, { useEffect } from "react";
+import React, { useEffect, useState } from "react";
 import { Link, Navigate, Route, Routes, useLocation } from "react-router-dom";
 import { signOut } from "firebase/auth";
 import { auth } from "./firebase";
@@ -24,6 +24,7 @@ export default function App() {
   const { user } = useAuthUser();
   const displayName = user?.displayName || user?.email || "Player";
   const inGame = loc.pathname.startsWith("/game/");
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   useEffect(() => {
     if (!user) return;
@@ -34,52 +35,80 @@ export default function App() {
     <div
       className={
         inGame
-          ? "h-screen overflow-hidden bg-gradient-to-b from-slate-950 to-slate-900 text-white"
+          ? "h-screen bg-gradient-to-b from-slate-950 to-slate-900 text-white"
           : "min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 text-slate-900"
       }
     >
-      <div className={inGame ? "flex h-full w-full flex-col px-3 py-2" : "mx-auto max-w-5xl px-4 py-6"}>
-        <header
-          className={
-            inGame
-              ? "flex h-11 items-center justify-between gap-3 rounded-2xl bg-white/5 px-3 ring-1 ring-white/10"
-              : "flex flex-col gap-2 sm:flex-row sm:items-end sm:justify-between"
-          }
-        >
-          <div className="flex items-baseline gap-3">
-            <Link to="/" className={inGame ? "text-base font-extrabold tracking-tight" : "text-2xl font-extrabold tracking-tight"}>
-              Golem's Journey
-            </Link>
-            <span
-              className={
-                inGame
-                  ? "hidden rounded-full bg-white/10 px-2.5 py-1 text-[11px] font-medium text-white/70 sm:inline"
-                  : "rounded-full bg-slate-900/5 px-2.5 py-1 text-xs font-medium text-slate-700"
-              }
+      {user && (
+        <>
+          <button
+            type="button"
+            onClick={() => setSettingsOpen((v) => !v)}
+            className={`fixed right-3 top-3 z-[70] flex h-10 w-10 items-center justify-center rounded-full ring-1 transition ${
+              inGame
+                ? "bg-white/10 text-white ring-white/15 hover:bg-white/15"
+                : "bg-white text-slate-900 shadow-sm ring-slate-200 hover:bg-slate-50"
+            }`}
+            aria-label="Open settings"
+            title="Settings"
+          >
+            ⚙
+          </button>
+
+          {settingsOpen && (
+            <div
+              className="fixed inset-0 z-[80] flex items-start justify-center bg-black/70 p-4"
+              onMouseDown={() => setSettingsOpen(false)}
             >
-              3 players • Firebase realtime
-            </span>
-          </div>
-
-          <div className={inGame ? "flex flex-wrap items-center gap-2 text-[11px] text-white/70" : "flex flex-wrap items-center gap-2 text-sm text-slate-600"}>
-            <Link to="/" className={inGame ? "rounded-full bg-white/10 px-3 py-1 font-semibold text-white/80" : "rounded-full bg-slate-900/10 px-3 py-1 text-xs font-semibold text-slate-700"}>
-              Lobby
-            </Link>
-            <Link to="/me" className={inGame ? "rounded-full bg-white/10 px-3 py-1 font-semibold text-white/80" : "rounded-full bg-slate-900/10 px-3 py-1 text-xs font-semibold text-slate-700"}>
-              Profile
-            </Link>
-            {user && (
-              <button
-                onClick={() => signOut(auth)}
-                className={inGame ? "rounded-full bg-white/10 px-3 py-1 font-semibold text-white/80" : "rounded-full bg-slate-900/10 px-3 py-1 text-xs font-semibold text-slate-700"}
+              <div
+                className="w-full max-w-sm rounded-3xl bg-slate-950 p-5 text-white shadow-2xl ring-1 ring-white/10"
+                onMouseDown={(e) => e.stopPropagation()}
               >
-                Sign out ({displayName})
-              </button>
-            )}
-          </div>
-        </header>
+                <div className="flex items-start justify-between gap-3">
+                  <div>
+                    <div className="text-sm font-extrabold">Settings</div>
+                    <div className="mt-1 text-xs text-white/60">Signed in as {displayName}</div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setSettingsOpen(false)}
+                    className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white/80 hover:bg-white/15"
+                  >
+                    Close
+                  </button>
+                </div>
 
-        <main className={inGame ? "mt-3 flex-1 overflow-hidden" : "mt-6"}>
+                <div className="mt-4 grid gap-2">
+                  <Link
+                    to="/"
+                    onClick={() => setSettingsOpen(false)}
+                    className="rounded-2xl bg-white/10 px-4 py-2 text-sm font-semibold text-white/90 ring-1 ring-white/10 hover:bg-white/15"
+                  >
+                    Lobby
+                  </Link>
+                  <Link
+                    to="/me"
+                    onClick={() => setSettingsOpen(false)}
+                    className="rounded-2xl bg-white/10 px-4 py-2 text-sm font-semibold text-white/90 ring-1 ring-white/10 hover:bg-white/15"
+                  >
+                    Profile
+                  </Link>
+                  <button
+                    type="button"
+                    onClick={() => signOut(auth)}
+                    className="rounded-2xl bg-rose-500/20 px-4 py-2 text-sm font-semibold text-rose-100 ring-1 ring-rose-200/10 hover:bg-rose-500/25"
+                  >
+                    Sign out
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </>
+      )}
+
+      <div className={inGame ? "h-full w-full p-2" : "mx-auto max-w-5xl px-4 py-6"}>
+        <main className={inGame ? "h-full w-full" : ""}>
           <Routes>
             <Route path="/auth" element={<Auth />} />
             <Route

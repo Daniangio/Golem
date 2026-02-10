@@ -26,6 +26,11 @@ export function PartChoiceCard({
           <div className="text-base font-extrabold text-white">{part.name}</div>
           <div className="mt-1 text-sm leading-relaxed text-white/75">{part.effect}</div>
         </div>
+        {takenBy.map((s) => (
+          <span key={s} className="rounded-full bg-white/10 px-2 py-1 text-xs font-semibold text-white/80">
+            {seatLabel(s)}
+          </span>
+        ))}
         <span
           className={`mt-0.5 rounded-full px-2 py-0.5 text-[11px] font-semibold ${
             part.type === "compulsory" ? "bg-amber-400/20 text-amber-200" : "bg-slate-200/10 text-slate-200"
@@ -33,14 +38,6 @@ export function PartChoiceCard({
         >
           {part.type}
         </span>
-      </div>
-
-      <div className="mt-3 flex flex-wrap gap-1">
-        {takenBy.map((s) => (
-          <span key={s} className="rounded-full bg-white/10 px-2 py-1 text-xs font-semibold text-white/80">
-            {seatLabel(s)}
-          </span>
-        ))}
       </div>
 
       <div className="pointer-events-none absolute inset-0 rounded-3xl ring-1 ring-white/5 group-hover:ring-white/15" />
