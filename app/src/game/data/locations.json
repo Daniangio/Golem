@@ -1,38 +1,68 @@
 [
-  {
-    "id": "L1_SCRAPHEAP_AWAKENING",
-    "stage": 1,
-    "name": "The Scrapheap Awakening",
-    "flavor": "“The Golem stirs amidst the rusted remains of its predecessors. Systems are coming online, but the frame is stiff and uncoordinated.”",
-    "rule": "System Warm-up: The first Undershoot of this Chapter does not penalize the draw phase; the Golem is still finding its momentum.",
-    "rewards": ["Self-Repair: Heal the Golem for 1 HP (Max 5)."],
-    "compulsoryPartIds": ["static_core", "numb_leg"],
-    "optionalPartIds": ["aux_battery", "fuse"],
-    "effects": [{ "type": "first_undershoot_refill_all" }]
+    {
+    "id": "S1_MALKUTH_AWAKENING",
+    "sphere": 1,
+    "name": "Malkuth: The Scrapheap Awakening",
+    "flavor": "“The Vessel stirs in the valley of dead matter. The first breath is thick with the scent of clay.”",
+    "rule": "Primal Inertia: The first Stall (Undershoot) of this Chapter does not penalize the draw phase.",
+    "rewards": [],
+    "compulsoryFacultyIds": ["leadened_shackle", "veiled_eye"],
+    "optionalFacultyIds": ["breath_of_dissolution", "harmonized_memory"],
+    "effects": [{ "type": "first_stall_refill_all" }]
   },
   {
-    "id": "L1_WHISPERING_MIRE",
-    "stage": 1,
-    "name": "The Whispering Mire",
-    "flavor": "“A thick, acidic fog clings to the Golem’s joints. Visibility is low, and every step requires precise thermal management to avoid a meltdown.”",
+    "id": "S1_MALKUTH_MIRE",
+    "sphere": 1,
+    "name": "Malkuth: The Whispering Mire",
+    "flavor": "“A thick, acidic fog clings to the Golem’s joints. Visibility is low, and every step requires precise thermal management.”",
     "rule": "Acidic Haze: A player cannot refill their hand if they play an Acid (Green) card, even if the group succeeds or they match the suit.",
-    "rewards": ["Self-Repair: Heal the Golem for 1 HP (Max 5)."],
-    "compulsoryPartIds": ["numb_leg", "muddled_sensors"],
-    "optionalPartIds": ["cooling_fan"],
+    "rewards": ["Meditative State: Reduce Friction to 0."],
+    "compulsoryFacultyIds": ["leadened_shackle", "veiled_eye"],
+    "optionalFacultyIds": ["supernal_overflow", "breath_of_dissolution"],
     "effects": [{ "type": "no_refill_if_played_suit", "suit": "acid" }]
   },
   {
-    "id": "L1_SHATTERED_ASCENT",
-    "stage": 1,
-    "name": "The Shattered Ascent",
-    "flavor": "“The path turns vertical. Gravity is a constant enemy, and the Golem must divert all power to its pistons to clear the jagged peaks.”",
-    "rule": "Gravitational Pull: If no player matches the Terrain suit during a Pulse, the group must immediately add +1 Heat as the Golem struggles to maintain its position.",
-    "rewards": [
-      "Self-Repair: Heal the Golem for 1 HP (Max 5).",
-      "Mulligan Token: Gain a shared token that allows one player to discard their entire hand and draw back to capacity at any time."
-    ],
-    "compulsoryPartIds": ["cracked_pistons", "heavy_chassis"],
-    "optionalPartIds": ["sharp_eye", "aux_battery", "fuse"],
-    "effects": [{ "type": "heat_if_no_terrain_match", "amount": 1 }]
+    "id": "S1_MALKUTH_ASCENT",
+    "sphere": 1,
+    "name": "Malkuth: The Shattered Ascent",
+    "flavor": "“The path turns vertical. Gravity is a constant enemy, and the Golem must divert all power to its joints.”",
+    "rule": "Gravitational Pull: If no player matches the Terrain suit during a Pulse, the group must immediately add +1 Friction as the Golem struggles to maintain its position.",
+    "rewards": ["Ethereal Supply: 1 Mulligan Token."],
+    "compulsoryFacultyIds": ["leadened_shackle", "sulfuric_will"],
+    "optionalFacultyIds": ["akashic_lens", "supernal_overflow", "communion_of_vessels"],
+    "effects": [{ "type": "friction_if_no_terrain_match", "amount": 1 }]
+  },
+  {
+    "id": "S2_YESOD_REFLECTION",
+    "sphere": 2,
+    "name": "Yesod: The Lunar Reflection",
+    "flavor": "“The Vessel gazes into the mirror of the moon. Reality ripples as the subconscious takes form.”",
+    "rule": "Astral Feedback: Using the Akashic Reservoir (Swap) generates +2 Friction instead of 1.",
+    "rewards": [],
+    "compulsoryFacultyIds": ["fractured_pillar", "sophic_vent", "communion_of_vessels"],
+    "optionalFacultyIds": [],
+    "effects": [{ "type": "swap_friction_cost", "amount": 2 }]
+  },
+  {
+    "id": "S2_YESOD_CROSSING",
+    "sphere": 2,
+    "name": "Yesod: The Astral Crossing",
+    "flavor": "“The silver cord stretches thin. Every movement requires a leap of faith across the void.”",
+    "rule": "The Scroll of Raziel: A second Reservoir is manifest. Additionally, the Blind Leap persists: manifest cards face-down before the Sphere’s Law is revealed.",
+    "rewards": [],
+    "compulsoryFacultyIds": ["harmonized_memory", "sophic_vent", "mercurial_joints"],
+    "optionalFacultyIds": [],
+    "effects": [{ "type": "reservoir_count", "count": 2 }, { "type": "hide_terrain_until_played" }]
+  },
+  {
+    "id": "S2_YESOD_DREAMS",
+    "sphere": 2,
+    "name": "Yesod: The Weaving of Dreams",
+    "flavor": "“The Demiurge weaves a web of illusions. To stall is to become entangled in the threads of sleep.”",
+    "rule": "Entangling Dreams: If the group Stalls (Undershoots), every player must discard one card from their awareness.",
+    "rewards": [],
+    "compulsoryFacultyIds": ["fractured_pillar", "unveiled_radiance"],
+    "optionalFacultyIds": ["harmonized_memory", "breath_of_dissolution", "supernal_overflow"],
+    "effects": [{ "type": "discard_cards_on_undershoot", "count": 1 }]
   }
 ]

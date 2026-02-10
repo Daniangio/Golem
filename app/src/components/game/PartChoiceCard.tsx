@@ -1,5 +1,5 @@
 import React from "react";
-import type { LocationPart } from "../../game/locations";
+import type { LocationFaculty } from "../../game/locations";
 import type { PlayerSlot } from "../../types";
 
 function seatLabel(seat: PlayerSlot): string {
@@ -11,7 +11,7 @@ export function PartChoiceCard({
   takenBy,
   onPick,
 }: {
-  part: LocationPart;
+  part: LocationFaculty;
   takenBy: PlayerSlot[];
   onPick: () => void;
 }) {
@@ -47,4 +47,3 @@ export function PartChoiceCard({
     </button>
   );
 }
-

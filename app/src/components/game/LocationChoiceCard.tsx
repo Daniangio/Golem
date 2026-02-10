@@ -7,12 +7,12 @@ function seatLabel(seat: PlayerSlot): string {
 }
 
 export function LocationChoiceCard({
-  stage,
+  sphere,
   location,
   votes,
   onVote,
 }: {
-  stage: number;
+  sphere: number;
   location: LocationCard;
   votes: PlayerSlot[];
   onVote: () => void;
@@ -33,7 +33,7 @@ export function LocationChoiceCard({
         >
           <div className="absolute inset-0 rounded-3xl bg-gradient-to-b from-slate-900 to-slate-950 p-5 shadow-xl ring-1 ring-white/10 [backface-visibility:hidden]">
             <div className="flex items-center justify-between">
-              <div className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white/80">Stage {stage}</div>
+              <div className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white/80">Sphere {sphere}</div>
               <div className="text-xs font-semibold text-white/60">Click to flip</div>
             </div>
             <div className="mt-4 text-xl font-extrabold tracking-tight text-white">{location.name}</div>
@@ -56,7 +56,7 @@ export function LocationChoiceCard({
           <div className="absolute inset-0 rounded-3xl bg-gradient-to-b from-slate-950 to-slate-900 p-5 shadow-xl ring-1 ring-white/10 [transform:rotateY(180deg)] [backface-visibility:hidden]">
             <div className="flex items-center justify-between">
               <div className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white/80">
-                {location.stage === 1 ? "Stage 1" : `Stage ${location.stage}`}
+                {location.sphere === 1 ? "Sphere 1" : `Sphere ${location.sphere}`}
               </div>
               <div className="text-xs font-semibold text-white/60">Click to flip</div>
             </div>
@@ -64,8 +64,8 @@ export function LocationChoiceCard({
             <div className="mt-4 text-sm italic leading-relaxed text-white/80">{location.flavor}</div>
 
             <div className="mt-5">
-              <div className="text-xs font-semibold text-white/70">Parts</div>
-              <div className="mt-2 text-xs text-white/60">Hover a part for details.</div>
+              <div className="text-xs font-semibold text-white/70">Faculties</div>
+              <div className="mt-2 text-xs text-white/60">Hover a faculty for details.</div>
 
               <div className="mt-3 space-y-3">
                 <div>

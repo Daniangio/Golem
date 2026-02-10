@@ -11,9 +11,11 @@ import {
   invitePlayer,
   joinGame,
   leaveGame,
+  offerExchangeCard,
   playerCount,
   playCard,
   playAuxBatteryCard,
+  returnExchangeCard,
   revokeInvite,
   removeBot,
   setLocationVote,
@@ -92,6 +94,8 @@ export default function Game() {
   const [showDiscardModal, setShowDiscardModal] = useState(false);
   const [showLogModal, setShowLogModal] = useState(false);
   const [showTerrainModal, setShowTerrainModal] = useState(false);
+  const [exchangeTargetSeat, setExchangeTargetSeat] = useState<PlayerSlot | null>(null);
+  const [exchangeCardId, setExchangeCardId] = useState<string | null>(null);
 
   const [game, setGame] = useState<GameSummary | null | undefined>(undefined);
   const [err, setErr] = useState<string | null>(null);
@@ -131,6 +135,34 @@ export default function Game() {
     // Reset selection when switching seats.
     setSelectedCardId(null);
   }, [activeSeat]);
+
+  useEffect(() => {
+    const ex = game?.exchange ?? null;
+    if (!ex) {
+      setExchangeTargetSeat(null);
+      setExchangeCardId(null);
+      return;
+    }
+
+    if (ex.status === "awaiting_offer") {
+      const candidates = SLOTS.filter((s) => s !== ex.from && Boolean(game?.players?.[s]));
+      setExchangeTargetSeat((prev) => (prev && prev !== ex.from && candidates.includes(prev) ? prev : candidates[0] ?? null));
+      setExchangeCardId(null);
+      return;
+    }
+
+    if (ex.status === "awaiting_return") {
+      setExchangeTargetSeat(ex.to ?? null);
+      setExchangeCardId(null);
+    }
+  }, [
+    game?.exchange?.status,
+    game?.exchange?.from,
+    game?.exchange?.to,
+    game?.players?.p1,
+    game?.players?.p2,
+    game?.players?.p3,
+  ]);
 
   const actingSeat =
     activeSeat && uid && game && canControlSeat(game, uid, activeSeat) ? activeSeat : mySlot;
@@ -441,9 +473,9 @@ export default function Game() {
     );
   }
 
-  const golemHp = game.golem?.hp ?? 5;
-  const golemHeat = game.golem?.heat ?? 0;
-  const stage = game.chapter ?? 1;
+  const spark = game.golem?.hp ?? 5;
+  const friction = game.golem?.heat ?? 0;
+  const sphere = game.chapter ?? 1;
 
   const location = getLocationById(game.locationId ?? null);
   const locationOptions = (game.locationOptions ?? getLocationsForStage(game.chapter ?? 1).map((l) => l.id))
@@ -507,12 +539,12 @@ export default function Game() {
   const terrainRemaining = Math.max(0, terrainDeck.length - (terrainIndex + 1));
   const pulsePhase = game.pulsePhase ?? "selection";
   const isPreSelection = pulsePhase === "pre_selection";
+  const exchange = game.exchange ?? null;
+  const exchangePending = Boolean(exchange);
 
   const selectedName = selectedUid ? playerLabel(selectedUid, game.playerNames) : "Empty";
   const selectedPartId = game.partPicks?.[selectedSeat] ?? null;
   const selectedPartDef = getPartById(selectedPartId);
-  const selectedPartEffects = selectedPartDef?.effects ?? [];
-  const selectedHasEffect = (type: string) => selectedPartEffects.some((e: any) => e && e.type === type);
   const selectedPartDetail = (() => {
     if (!location || !selectedPartId) return null;
     const all = [...location.compulsory, ...location.optional];
@@ -522,14 +554,25 @@ export default function Game() {
 
   const seatList = SLOTS;
   const canActForSelected = Boolean(uid && canControlSeat(game, uid, selectedSeat));
-  const seatHasEffect = (seat: PlayerSlot, effectType: string): boolean => {
+  const effectsForSeat = (seat: PlayerSlot): any[] => {
+    const out: any[] = [];
     const pid = game.partPicks?.[seat] ?? null;
     const def = getPartById(pid);
-    const eff = def?.effects ?? [];
-    return eff.some((e: any) => e && e.type === effectType);
+    if (def?.effects?.length) out.push(...def.effects);
+    if (location?.effects?.length) out.push(...location.effects);
+    return out;
   };
+  const seatHasEffect = (seat: PlayerSlot, effectType: string): boolean =>
+    effectsForSeat(seat).some((e) => e && e.type === effectType);
+
+  const selectedSeatEffects = effectsForSeat(selectedSeat);
+  const selectedHasEffect = (type: string) => selectedSeatEffects.some((e) => e && e.type === type);
+
   const preSelectionSeats = SLOTS.filter((s) => seatHasEffect(s, "hide_terrain_until_played"));
   const preSelectionDone = preSelectionSeats.every((s) => Boolean(played[s]?.card));
+
+  const ABILITY_EXTRA_CARD = "once_per_chapter_extra_card_after_reveal";
+  const ABILITY_FUSE = "once_per_chapter_fuse_to_zero_after_reveal";
 
   const canPlayFromSelected = Boolean(
     gameId &&
@@ -538,7 +581,7 @@ export default function Game() {
       actingSeat &&
       actingSeat === selectedSeat &&
       (pulsePhase === "selection"
-        ? !preSelectionSeats.length || preSelectionDone
+        ? !exchangePending && (!preSelectionSeats.length || preSelectionDone)
         : pulsePhase === "pre_selection"
           ? preSelectionSeats.includes(selectedSeat) && !played[selectedSeat]?.card
           : false)
@@ -548,33 +591,38 @@ export default function Game() {
       uid &&
       actingSeat &&
       actingSeat === selectedSeat &&
-      selectedPartId === "aux_battery" &&
+      selectedHasEffect(ABILITY_EXTRA_CARD) &&
       pulsePhase === "actions" &&
       Boolean(played[selectedSeat]?.card) &&
       !Boolean(played[selectedSeat]?.extraCard) &&
-      !(game.chapterAbilityUsed?.[selectedSeat]?.aux_battery ?? false)
+      !(game.chapterAbilityUsed?.[selectedSeat]?.[ABILITY_EXTRA_CARD] ?? false)
   );
 
-  const fuseSeat = actingSeat && (game.partPicks?.[actingSeat] ?? null) === "fuse" ? actingSeat : null;
+  const fuseSeat = actingSeat && seatHasEffect(actingSeat, ABILITY_FUSE) ? actingSeat : null;
   const fuseAvailable = Boolean(
-    gameId && uid && fuseSeat && pulsePhase === "actions" && !(game.chapterAbilityUsed?.[fuseSeat]?.fuse ?? false)
+    gameId && uid && fuseSeat && pulsePhase === "actions" && !(game.chapterAbilityUsed?.[fuseSeat]?.[ABILITY_FUSE] ?? false)
+  );
+
+  const canOfferExchange = Boolean(
+    exchange && exchange.status === "awaiting_offer" && uid && canControlSeat(game, uid, exchange.from)
+  );
+  const canReturnExchange = Boolean(
+    exchange && exchange.status === "awaiting_return" && exchange.to && uid && canControlSeat(game, uid, exchange.to)
   );
 
   const selectedAbilityUsed = game.chapterAbilityUsed?.[selectedSeat] ?? {};
   const chapterGlobalUsed = game.chapterGlobalUsed ?? {};
   const selectedPartToken = (() => {
     if (!selectedPartId) return null;
-    if (selectedPartId === "aux_battery") {
-      const used = Boolean(selectedAbilityUsed.aux_battery);
-      return { label: used ? "Battery used" : "Battery ready", tone: used ? "muted" : "good" } as const;
+    if (selectedHasEffect(ABILITY_EXTRA_CARD)) {
+      const used = Boolean(selectedAbilityUsed[ABILITY_EXTRA_CARD]);
+      return { label: used ? "Overflow used" : "Overflow ready", tone: used ? "muted" : "good" } as const;
     }
-    if (selectedPartId === "fuse") {
-      const used = Boolean(selectedAbilityUsed.fuse);
-      return { label: used ? "Fuse used" : "Fuse ready", tone: used ? "muted" : "good" } as const;
+    if (selectedHasEffect(ABILITY_FUSE)) {
+      const used = Boolean(selectedAbilityUsed[ABILITY_FUSE]);
+      return { label: used ? "Dissolution used" : "Dissolution ready", tone: used ? "muted" : "good" } as const;
     }
-    if (selectedPartId === "numb_leg") return { label: "Passive", tone: "muted" } as const;
-    if (selectedPartId === "static_core") return { label: "Passive", tone: "muted" } as const;
-    return null;
+    return { label: "Passive", tone: "muted" } as const;
   })();
 
   const locationTokens = (() => {
@@ -582,8 +630,8 @@ export default function Game() {
     const out: Array<{ key: string; label: string; tone: "good" | "muted" }> = [];
     for (const e of location.effects as any[]) {
       if (!e?.type) continue;
-      if (e.type === "first_undershoot_refill_all") {
-        const used = Boolean(chapterGlobalUsed.first_undershoot_refill_all);
+      if (e.type === "first_stall_refill_all") {
+        const used = Boolean(chapterGlobalUsed.first_stall_refill_all);
         out.push({ key: e.type, label: used ? "Warm-up used" : "Warm-up ready", tone: used ? "muted" : "good" });
       }
     }
@@ -597,7 +645,7 @@ export default function Game() {
           <aside className="min-h-0 overflow-visible rounded-3xl bg-white/5 p-3 ring-1 ring-white/10">
             <div className="flex items-center justify-between">
               <div className="text-xs font-semibold text-white/60">Players</div>
-              <div className="text-[11px] font-semibold text-white/50">Stage {stage}</div>
+              <div className="text-[11px] font-semibold text-white/50">Sphere {sphere}</div>
             </div>
             <div className="mt-3 space-y-2">
               {seatList.map((seat) => {
@@ -647,9 +695,9 @@ export default function Game() {
                           {isBotUid(u) && <span className="text-[11px] font-semibold text-white/50">bot</span>}
                         </div>
                         {partName ? (
-                          <div className="mt-1 truncate text-[11px] font-semibold text-white/70">Part: {partName}</div>
+                          <div className="mt-1 truncate text-[11px] font-semibold text-white/70">Faculty: {partName}</div>
                         ) : (
-                          <div className="mt-1 text-[11px] font-semibold text-white/40">No part yet</div>
+                          <div className="mt-1 text-[11px] font-semibold text-white/40">No faculty yet</div>
                         )}
                       </div>
                       <div className="shrink-0 rounded-xl bg-white/5 px-2 py-1 text-[11px] font-semibold text-white/70 ring-1 ring-white/10">
@@ -693,10 +741,10 @@ export default function Game() {
                   <div className="text-[11px] font-semibold text-white/60">Golem status</div>
                   <div className="mt-2 flex flex-wrap items-center gap-2">
                     <div className="rounded-2xl bg-white/5 px-3 py-2 text-sm font-extrabold text-white ring-1 ring-white/10">
-                      HP <span className="ml-1 text-white/90">♥</span> {golemHp}
+                      Spark <span className="ml-1 text-white/90">✦</span> {spark}
                     </div>
                     <div className="rounded-2xl bg-white/5 px-3 py-2 text-sm font-extrabold text-white ring-1 ring-white/10">
-                      Heat <span className="ml-1 text-white/90">♨</span> {golemHeat}
+                      Friction <span className="ml-1 text-white/90">⟁</span> {friction}
                     </div>
                     <div className="rounded-2xl bg-white/5 px-3 py-2 text-sm font-extrabold text-white ring-1 ring-white/10">
                       Phase <span className="ml-1 text-white/80">{game.phase ?? "—"}</span>
@@ -710,7 +758,7 @@ export default function Game() {
                     <div className="text-[11px] font-semibold text-white/60">Location</div>
                     {location ? (
                       <div className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] font-semibold text-white/75">
-                        Stage {stage}
+                        Sphere {sphere}
                       </div>
                     ) : null}
                   </div>
@@ -759,16 +807,16 @@ export default function Game() {
                     </div>
                     <div className="mt-3 min-h-0 flex-1 overflow-auto pr-1">
                       <div className="flex flex-wrap items-start justify-center gap-4">
-                        {locationOptions.map((loc) => (
-                          <div key={loc.id} className="origin-top scale-[0.92]">
-                            <LocationChoiceCard
-                              stage={stage}
-                              location={loc}
-                              votes={voteByValue[loc.id] ?? []}
-                              onVote={() => onVoteLocation(loc.id)}
-                            />
-                          </div>
-                        ))}
+	                        {locationOptions.map((loc) => (
+	                          <div key={loc.id} className="origin-top scale-[0.92]">
+	                            <LocationChoiceCard
+	                              sphere={sphere}
+	                              location={loc}
+	                              votes={voteByValue[loc.id] ?? []}
+	                              onVote={() => void onVoteLocation(loc.id)}
+	                            />
+	                          </div>
+	                        ))}
                       </div>
                     </div>
                     <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
@@ -798,7 +846,7 @@ export default function Game() {
                   <div className="flex h-full min-h-0 flex-col">
                     <div className="flex flex-wrap items-end justify-between gap-2">
                       <div>
-                        <div className="text-sm font-extrabold text-white">Pick parts</div>
+                        <div className="text-sm font-extrabold text-white">Assign faculties</div>
                         <div className="mt-1 text-xs text-white/65">
                           Selected seat: <span className="font-extrabold text-white">{seatLabel(selectedSeat)}</span>{" "}
                           {canActForSelected ? "" : "(view-only)"}
@@ -810,7 +858,7 @@ export default function Game() {
                           disabled={busy || !canConfirmParts}
                           className="rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-extrabold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-40"
                         >
-                          Confirm parts
+	                          Confirm faculties
                         </button>
                       )}
                     </div>
@@ -859,8 +907,7 @@ export default function Game() {
 		                            onClick={
 		                              !isPreSelection &&
 		                              terrainDeck.length &&
-		                              selectedHasEffect("peek_terrain_deck") &&
-		                              canActForSelected
+		                              SLOTS.some((s) => seatHasEffect(s, "peek_terrain_deck"))
 		                                ? () => setShowTerrainModal(true)
 		                                : undefined
 		                            }
@@ -889,19 +936,29 @@ export default function Game() {
 	                        </div>
 	                      </div>
 
-                      <div className="rounded-3xl bg-white/5 p-3 ring-1 ring-white/10">
-                        <div className="flex items-center justify-between gap-2">
-                          <div className="text-xs font-semibold text-white/70">Reservoir</div>
-                          <div className="text-[11px] font-semibold text-white/50">Phase: {pulsePhase}</div>
-                        </div>
-                        <div className="mt-3 flex items-center justify-center">
-                          {game.reservoir ? (
-                            <PulseCardPreview card={game.reservoir} />
-                          ) : (
-                            <div className="text-sm text-white/60">No reservoir.</div>
-                          )}
-                        </div>
-                      </div>
+	                      <div className="rounded-3xl bg-white/5 p-3 ring-1 ring-white/10">
+	                        <div className="flex items-center justify-between gap-2">
+	                          <div className="text-xs font-semibold text-white/70">Akashic Reservoir</div>
+	                          <div className="text-[11px] font-semibold text-white/50">Phase: {pulsePhase}</div>
+	                        </div>
+	                        <div className="mt-3 flex flex-wrap items-center justify-center gap-3">
+	                          {game.reservoir ? (
+	                            <div className="flex flex-col items-center gap-1">
+	                              <div className="text-[10px] font-semibold text-white/50">R1</div>
+	                              <PulseCardPreview card={game.reservoir} />
+	                            </div>
+	                          ) : null}
+	                          {game.reservoir2 ? (
+	                            <div className="flex flex-col items-center gap-1">
+	                              <div className="text-[10px] font-semibold text-white/50">R2</div>
+	                              <PulseCardPreview card={game.reservoir2} />
+	                            </div>
+	                          ) : null}
+	                          {!game.reservoir && !game.reservoir2 ? (
+	                            <div className="text-sm text-white/60">No reservoir.</div>
+	                          ) : null}
+	                        </div>
+	                      </div>
 
                       <div
                         role="button"
@@ -960,7 +1017,7 @@ export default function Game() {
                                     await endActions(gameId, uid);
                                   })
                                 }
-                                disabled={busy || !haveAllPlayed}
+                                disabled={busy || !haveAllPlayed || exchangePending}
                                 className="rounded-2xl bg-emerald-500 px-3 py-1.5 text-[11px] font-extrabold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-40"
                               >
                                 End actions
@@ -970,21 +1027,28 @@ export default function Game() {
                         </div>
 
                         <div className="mt-2 grid min-h-0 grid-cols-3 gap-2">
-	                          {SLOTS.map((s) => {
-	                            const entry = played[s];
+		                          {SLOTS.map((s) => {
+		                            const entry = played[s];
 		                            const seatUid = players[s] ?? "";
 		                            const seatName = seatUid ? playerLabel(seatUid, game.playerNames) : seatLabel(s);
+		                            const isOwnOrControlled = Boolean(
+		                              uid && (seatUid === uid || (isHost && isBotUid(seatUid) && activeSeat === s))
+		                            );
+		                            const revealedToAll = Boolean(entry?.revealedDuringSelection && pulsePhase === "selection");
 		                            const showFaceUpInSelection = Boolean(
 		                              entry?.card &&
 		                                (pulsePhase === "selection" || pulsePhase === "pre_selection") &&
-		                                uid &&
-		                                (seatUid === uid || (isHost && isBotUid(seatUid) && activeSeat === s))
+		                                (revealedToAll || isOwnOrControlled)
 		                            );
-	                            const canSwapHere = Boolean(
-	                              pulsePhase === "actions" && uid && gameId && game.reservoir && canControlSeat(game, uid, s)
-	                            );
-	                            const fused = entry?.valueOverride === 0;
-	                            const canFuseHere = Boolean(fuseAvailable && !fused && entry?.card);
+		                            const canSwapR1 = Boolean(
+		                              pulsePhase === "actions" && uid && gameId && game.reservoir && canControlSeat(game, uid, s)
+		                            );
+		                            const canSwapR2 = Boolean(
+		                              pulsePhase === "actions" && uid && gameId && game.reservoir2 && canControlSeat(game, uid, s)
+		                            );
+		                            const canSwapHere = canSwapR1 || canSwapR2;
+		                            const fused = entry?.valueOverride === 0;
+		                            const canFuseHere = Boolean(fuseAvailable && !fused && entry?.card);
                             return (
                               <div key={s} className="relative rounded-2xl bg-white/5 p-3 ring-1 ring-white/10">
                                 <div className="flex items-center justify-between gap-0">
@@ -995,11 +1059,13 @@ export default function Game() {
 		                                    {entry?.card
 		                                      ? pulsePhase === "selection" || pulsePhase === "pre_selection"
 		                                        ? showFaceUpInSelection
-		                                          ? "Your card"
+		                                          ? revealedToAll && !isOwnOrControlled
+		                                            ? "Face-up"
+		                                            : "Your card"
 		                                          : "Covered"
 		                                        : "Revealed"
-	                                      : "—"}
-	                                  </div>
+		                                      : "—"}
+		                                  </div>
 	                                </div>
 	                                <div className="mt-2 flex items-center justify-center">
 		                                  {entry?.card ? (
@@ -1020,35 +1086,50 @@ export default function Game() {
                                           )}
                                           {(canSwapHere || canFuseHere) && (
                                             <div className="absolute left-1/2 top-0 z-10 flex -translate-x-1/2 gap-2">
-                                              {canSwapHere && (
-                                                <button
-                                                  type="button"
-                                                  onClick={() =>
-                                                    guarded(async () => {
-                                                      if (!uid || !gameId) return;
-                                                      await swapWithReservoir(gameId, uid, s);
-                                                    })
-                                                  }
-                                                  disabled={busy}
-                                                  className="rounded-full bg-white px-3 py-1 text-[11px] font-extrabold text-slate-900 shadow disabled:opacity-40"
-                                                >
-                                                  Swap
-                                                </button>
-                                              )}
+	                                              {canSwapR1 && (
+	                                                <button
+	                                                  type="button"
+	                                                  onClick={() =>
+	                                                    guarded(async () => {
+	                                                      if (!uid || !gameId) return;
+	                                                      await swapWithReservoir(gameId, uid, s, 1);
+	                                                    })
+	                                                  }
+	                                                  disabled={busy}
+	                                                  className="rounded-full bg-white px-3 py-1 text-[11px] font-extrabold text-slate-900 shadow disabled:opacity-40"
+	                                                >
+	                                                  Swap R1
+	                                                </button>
+	                                              )}
+	                                              {canSwapR2 && (
+	                                                <button
+	                                                  type="button"
+	                                                  onClick={() =>
+	                                                    guarded(async () => {
+	                                                      if (!uid || !gameId) return;
+	                                                      await swapWithReservoir(gameId, uid, s, 2);
+	                                                    })
+	                                                  }
+	                                                  disabled={busy}
+	                                                  className="rounded-full bg-white px-3 py-1 text-[11px] font-extrabold text-slate-900 shadow disabled:opacity-40"
+	                                                >
+	                                                  Swap R2
+	                                                </button>
+	                                              )}
                                               {canFuseHere && fuseSeat && (
-                                                <button
-                                                  type="button"
-                                                  onClick={() =>
-                                                    guarded(async () => {
-                                                      if (!uid || !gameId) return;
-                                                      await useFuse(gameId, uid, fuseSeat, s);
-                                                    })
-                                                  }
-                                                  disabled={busy}
-                                                  className="rounded-full bg-fuchsia-400 px-3 py-1 text-[11px] font-extrabold text-slate-950 shadow disabled:opacity-40"
-                                                >
-                                                  Fuse → 0
-                                                </button>
+	                                                <button
+	                                                  type="button"
+	                                                  onClick={() =>
+	                                                    guarded(async () => {
+	                                                      if (!uid || !gameId) return;
+	                                                      await useFuse(gameId, uid, fuseSeat, s);
+	                                                    })
+	                                                  }
+	                                                  disabled={busy}
+	                                                  className="rounded-full bg-fuchsia-400 px-3 py-1 text-[11px] font-extrabold text-slate-950 shadow disabled:opacity-40"
+	                                                >
+	                                                  Dissolve → 0
+	                                                </button>
                                               )}
                                             </div>
                                           )}
@@ -1056,7 +1137,7 @@ export default function Game() {
 
                                         {entry.extraCard && (
                                           <div className="flex flex-col items-center gap-1">
-                                            <div className="text-[10px] font-semibold text-emerald-200/80">Battery</div>
+                                            <div className="text-[10px] font-semibold text-emerald-200/80">Overflow</div>
                                             <PulseCardMini
                                               card={entry.extraCard}
                                               selected={false}
@@ -1140,7 +1221,7 @@ export default function Game() {
 
           <div className="mt-3 grid min-h-0 flex-1 grid-cols-[minmax(220px,32%)_minmax(0,1fr)] gap-3">
             <div className="min-h-0 overflow-hidden rounded-3xl bg-white/5 p-3 ring-1 ring-white/10">
-              <div className="text-xs font-semibold text-white/60">Part</div>
+              <div className="text-xs font-semibold text-white/60">Faculty</div>
 	              {selectedPartDetail ? (
 	                <div className="mt-2">
 	                  <div className="flex items-center justify-between gap-2">
@@ -1171,8 +1252,8 @@ export default function Game() {
 	                  <div className="mt-2 text-sm leading-relaxed text-white/75">{selectedPartDetail.effect}</div>
 	                </div>
 	              ) : (
-                <div className="mt-2 text-sm text-white/60">No part chosen yet.</div>
-              )}
+	                <div className="mt-2 text-sm text-white/60">No faculty chosen yet.</div>
+	              )}
             </div>
 
             <div className="min-h-0 overflow-visible rounded-3xl bg-white/5 p-3 ring-1 ring-white/10">
@@ -1208,8 +1289,8 @@ export default function Game() {
 	                            Play
 	                          </button>
 	                        )}
-	                        {selected && canAuxBatteryFromSelected && (
-	                          <button
+		                        {selected && canAuxBatteryFromSelected && (
+		                          <button
 	                            type="button"
 	                            onClick={() =>
 	                              guarded(async () => {
@@ -1217,12 +1298,12 @@ export default function Game() {
 	                                await playAuxBatteryCard(gameId, uid, actingSeat, selectedCardId);
 	                              })
 	                            }
-	                            disabled={busy}
-	                            className="absolute left-1/2 top-0 -translate-x-1/2 rounded-full bg-emerald-400 px-3 py-1 text-[11px] font-extrabold text-slate-950 shadow disabled:opacity-40"
-	                          >
-	                            Battery
-	                          </button>
-	                        )}
+		                            disabled={busy}
+		                            className="absolute left-1/2 top-0 -translate-x-1/2 rounded-full bg-emerald-400 px-3 py-1 text-[11px] font-extrabold text-slate-950 shadow disabled:opacity-40"
+		                          >
+		                            Overflow
+		                          </button>
+		                        )}
 	                      </div>
 	                    );
 	                  })
@@ -1376,7 +1457,7 @@ export default function Game() {
                     <div className="flex flex-wrap items-center justify-between gap-2">
                       <div className="text-xs font-extrabold text-white">{e.result.toUpperCase()}</div>
                       <div className="text-[11px] font-semibold text-white/50">
-                        Chapter {e.chapter} • Step {e.step} • {e.terrainSuit.toUpperCase()}
+                        Sphere {e.chapter} • Step {e.step} • {e.terrainSuit.toUpperCase()}
                       </div>
                     </div>
                     <div className="mt-1 text-sm text-white/70">
@@ -1387,6 +1468,167 @@ export default function Game() {
                 {!outcomeLog.length && <div className="text-sm text-white/60">No entries yet.</div>}
               </div>
             </div>
+          </div>
+        </div>
+      )}
+
+      {exchangePending && exchange && (
+        <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/75 p-4">
+          <div className="w-full max-w-4xl rounded-3xl bg-slate-950 p-5 text-white shadow-2xl ring-1 ring-white/10">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-extrabold">The Communion of Vessels</div>
+                <div className="mt-1 text-xs text-white/60">Mandatory exchange before continuing.</div>
+              </div>
+              <div className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white/70">
+                {exchange.status === "awaiting_offer" ? "Offer" : "Return"}
+              </div>
+            </div>
+
+            {exchange.status === "awaiting_offer" ? (
+              <div className="mt-4">
+                <div className="text-sm font-semibold text-white">
+                  {seatLabel(exchange.from)} • {playerLabel(players[exchange.from] ?? "", game.playerNames)}{" "}
+                  <span className="text-white/60">must offer one card.</span>
+                </div>
+
+                {canOfferExchange ? (
+                  <>
+                    <div className="mt-3 grid gap-4 md:grid-cols-2">
+                      <div className="rounded-2xl bg-white/5 p-4 ring-1 ring-white/10">
+                        <div className="text-xs font-semibold text-white/70">Choose recipient</div>
+                        <div className="mt-2 flex flex-wrap gap-2">
+                          {SLOTS.filter((s) => s !== exchange.from).map((s) => {
+                            const u = players[s];
+                            const disabled = !u;
+                            const selected = exchangeTargetSeat === s;
+                            return (
+                              <button
+                                key={s}
+                                type="button"
+                                disabled={disabled}
+                                onClick={() => setExchangeTargetSeat(s)}
+                                className={`rounded-full px-3 py-1 text-xs font-semibold ring-1 ${
+                                  selected
+                                    ? "bg-emerald-400/20 text-emerald-100 ring-emerald-200/30"
+                                    : "bg-white/10 text-white/80 ring-white/10 hover:bg-white/15"
+                                } disabled:opacity-40`}
+                              >
+                                {seatLabel(s)} • {u ? playerLabel(u, game.playerNames) : "Empty"}
+                              </button>
+                            );
+                          })}
+                        </div>
+                      </div>
+
+                      <div className="rounded-2xl bg-white/5 p-4 ring-1 ring-white/10">
+                        <div className="flex items-center justify-between gap-2">
+                          <div className="text-xs font-semibold text-white/70">Choose card to offer</div>
+                          <div className="text-[11px] font-semibold text-white/50">🂠 {(hands[exchange.from] ?? []).length}</div>
+                        </div>
+                        <div className="mt-3 flex flex-wrap gap-2">
+                          {(hands[exchange.from] ?? []).map((c) => (
+                            <PulseCardMini
+                              key={c.id}
+                              card={c}
+                              selected={exchangeCardId === c.id}
+                              lift="sm"
+                              onClick={() => setExchangeCardId(c.id)}
+                            />
+                          ))}
+                          {!(hands[exchange.from] ?? []).length && <div className="text-sm text-white/60">No cards.</div>}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+                      <button
+                        type="button"
+                        onClick={() =>
+                          guarded(async () => {
+                            if (!uid || !gameId) return;
+                            if (!exchangeTargetSeat || !exchangeCardId) return;
+                            await offerExchangeCard(gameId, uid, exchange.from, exchangeTargetSeat, exchangeCardId);
+                          })
+                        }
+                        disabled={busy || !exchangeTargetSeat || !exchangeCardId}
+                        className="rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-extrabold text-white shadow-sm disabled:opacity-40"
+                      >
+                        Offer card
+                      </button>
+                    </div>
+                  </>
+                ) : (
+                  <div className="mt-3 text-sm text-white/60">
+                    Waiting for {seatLabel(exchange.from)} to offer a card…
+                  </div>
+                )}
+              </div>
+            ) : exchange.status === "awaiting_return" ? (
+              <div className="mt-4">
+                <div className="text-sm font-semibold text-white">
+                  {seatLabel(exchange.to ?? "p1")} • {playerLabel(players[exchange.to ?? "p1"] ?? "", game.playerNames)}{" "}
+                  <span className="text-white/60">must return one card to</span> {seatLabel(exchange.from)} •{" "}
+                  {playerLabel(players[exchange.from] ?? "", game.playerNames)}.
+                </div>
+
+                <div className="mt-3 grid gap-4 md:grid-cols-2">
+                  <div className="rounded-2xl bg-white/5 p-4 ring-1 ring-white/10">
+                    <div className="text-xs font-semibold text-white/70">Offered card</div>
+                    <div className="mt-3 flex items-center justify-center">
+                      {exchange.offered ? <PulseCardPreview card={exchange.offered} /> : <div className="text-sm text-white/60">—</div>}
+                    </div>
+                  </div>
+
+                  <div className="rounded-2xl bg-white/5 p-4 ring-1 ring-white/10">
+                    <div className="flex items-center justify-between gap-2">
+                      <div className="text-xs font-semibold text-white/70">Choose card to return</div>
+                      <div className="text-[11px] font-semibold text-white/50">
+                        🂠 {exchange.to ? (hands[exchange.to] ?? []).length : 0}
+                      </div>
+                    </div>
+
+                    {canReturnExchange && exchange.to ? (
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        {(hands[exchange.to] ?? []).map((c) => (
+                          <PulseCardMini
+                            key={c.id}
+                            card={c}
+                            selected={exchangeCardId === c.id}
+                            lift="sm"
+                            onClick={() => setExchangeCardId(c.id)}
+                          />
+                        ))}
+                        {!(hands[exchange.to] ?? []).length && <div className="text-sm text-white/60">No cards.</div>}
+                      </div>
+                    ) : (
+                      <div className="mt-3 text-sm text-white/60">
+                        Waiting for {exchange.to ? seatLabel(exchange.to) : "the recipient"} to return a card…
+                      </div>
+                    )}
+                  </div>
+                </div>
+
+                {canReturnExchange && exchange.to && (
+                  <div className="mt-4 flex flex-wrap items-center justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() =>
+                        guarded(async () => {
+                          if (!uid || !gameId) return;
+                          if (!exchange.to || !exchangeCardId) return;
+                          await returnExchangeCard(gameId, uid, exchange.to, exchangeCardId);
+                        })
+                      }
+                      disabled={busy || !exchangeCardId}
+                      className="rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-extrabold text-white shadow-sm disabled:opacity-40"
+                    >
+                      Return card
+                    </button>
+                  </div>
+                )}
+              </div>
+            ) : null}
           </div>
         </div>
       )}

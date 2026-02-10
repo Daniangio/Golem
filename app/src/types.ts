@@ -40,15 +40,8 @@ export type TerrainCard = {
 
 export type PulsePhase = "pre_selection" | "selection" | "actions";
 
-export type ChapterAbilityUsed = Partial<
-  Record<
-    PlayerSlot,
-    {
-      aux_battery?: boolean;
-      fuse?: boolean;
-    }
-  >
->;
+// Per-sphere once-only abilities keyed by ability/effect id.
+export type ChapterAbilityUsed = Partial<Record<PlayerSlot, Partial<Record<string, boolean>>>>;
 
 export type ChapterGlobalUsed = Partial<Record<string, boolean>>;
 
@@ -56,6 +49,7 @@ export type PlayedCard = {
   card: PulseCard;
   extraCard?: PulseCard;
   valueOverride?: number; // e.g. Fuse -> 0
+  revealedDuringSelection?: boolean; // Unveiled Radiance
   bySeat: PlayerSlot;
   at: any; // serverTimestamp
 };
@@ -97,6 +91,14 @@ export type GameDoc = {
   baseHandCapacity?: number; // chapter baseline before part effects
 
   reservoir?: PulseCard | null;
+  reservoir2?: PulseCard | null;
+
+  exchange?: {
+    from: PlayerSlot;
+    to?: PlayerSlot;
+    offered?: PulseCard;
+    status: "awaiting_offer" | "awaiting_return";
+  } | null;
 
   terrainDeck?: TerrainCard[];
   terrainIndex?: number; // 0-4

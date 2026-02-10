@@ -3,13 +3,17 @@ import { getLocationsForStage } from "./catalog";
 export {
   getLocationById,
   getLocationsForStage,
+  getLocationsForSphere,
   getPartById,
+  getFacultyById,
   getUpgradeById,
   getAllUpgrades,
+  getSigilById,
+  getAllSigils,
   type LocationCard,
-  type LocationPart,
-  type PartDef,
-  type UpgradeDef,
+  type LocationFaculty,
+  type FacultyDef,
+  type SigilDef,
   type Effect,
 } from "./catalog";
 

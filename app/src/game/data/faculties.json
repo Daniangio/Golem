@@ -1,0 +1,74 @@
+[
+  {
+    "id": "supernal_overflow",
+    "name": "The Supernal Overflow",
+    "text": "A sudden surge from the Kether. Once per Sphere, after the reveal, this player may manifest one additional card from their Hand to the emanation.",
+    "effects": [{ "type": "once_per_chapter_extra_card_after_reveal" }]
+  },
+  {
+    "id": "breath_of_dissolution",
+    "name": "The Breath of Dissolution",
+    "text": "The authority to unmake. Once per Sphere, after the reveal, this player may choose one manifested card and reduce its vibration (value) to 0 for that Pulse.",
+    "effects": [{ "type": "once_per_chapter_fuse_to_zero_after_reveal" }]
+  },
+  {
+    "id": "leadened_shackle",
+    "name": "The Leadened Shackle",
+    "text": "Influence of Saturn. The soul is heavy with material history. Your Hand Capacity is reduced by 1.",
+    "effects": [{ "type": "hand_capacity_delta", "amount": -1 }]
+  },
+  {
+    "id": "veiled_eye",
+    "name": "The Veiled Eye",
+    "text": "The Veil of Maya. You must play your card face-down before the Law of the Sphere (Terrain) is revealed.",
+    "effects": [{ "type": "hide_terrain_until_played" }]
+  },
+  {
+    "id": "fractured_pillar",
+    "name": "The Fractured Pillar",
+    "text": "Instability in Yesod. If the group Stalls (Undershoots), you must discard an additional card from your Hand.",
+    "effects": [{ "type": "discard_cards_on_undershoot", "count": 1 }]
+  },
+  {
+    "id": "sulfuric_will",
+    "name": "The Sulfuric Will",
+    "text": "Hyper-fixation on the Physical. Your cards always count as +2 value.",
+    "effects": [{ "type": "pulse_value_delta", "amount": 2 }]
+  },
+  {
+    "id": "akashic_lens",
+    "name": "The Akashic Lens",
+    "text": "Prophetic Sight. All players can inspect the 5 Laws (Terrain cards) of the current Sphere at any time.",
+    "effects": [{ "type": "peek_terrain_deck" }]
+  },
+  {
+    "id": "mercurial_joints",
+    "name": "The Mercurial Joints",
+    "text": "Adaptability of the Sage. Your 0 count as 0-5 Jolly cards.",
+    "effects": [{ "type": "zero_count_as_jolly_delta", "amount": [0, 5] }]
+  },
+  {
+    "id": "sophic_vent",
+    "name": "The Sophic Vent",
+    "text": "Wisdom of the Higher Spheres. When you play a Steam (White) card, reduce Friction by 1.",
+    "effects": [{ "type": "friction_delta_if_played_suit", "suit": "steam", "amount": -1 }]
+  },
+  {
+    "id": "unveiled_radiance",
+    "name": "The Unveiled Radiance",
+    "text": "Absolute clarity. You may manifest your card face-up during the Selection Phase.",
+    "effects": [{ "type": "reveal_card_during_selection" }]
+  },
+  {
+    "id": "communion_of_vessels",
+    "name": "The Communion of Vessels",
+    "text": "The flow of essence. After the Sphere’s Law is revealed, you must exchange one card from your hand with another player. You choose the recipient; they receive your card and then return a card of their choosing.",
+    "effects": [{ "type": "mandatory_card_exchange_after_terrain_reveal" }]
+  },
+  {
+    "id": "harmonized_memory",
+    "name": "The Harmonized Memory",
+    "text": "Resonance with the Akasha. You may perform an Akashic Swap for 0 Friction if the suit of your manifested card matches the suit of the card taken from the Reservoir.",
+    "effects": [{ "type": "free_swap_on_suit_resonance" }]
+  }
+]

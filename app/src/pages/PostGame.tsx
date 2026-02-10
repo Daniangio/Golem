@@ -45,7 +45,7 @@ export default function PostGame() {
           <div className="text-2xl font-extrabold text-white">{title}</div>
           <div className="mt-1 text-sm text-white/70">{subtitle}</div>
           <div className="mt-2 text-xs font-semibold text-white/50">
-            Final HP: {game.golem?.hp ?? "—"} • Chapter: {game.chapter ?? "—"}
+            Final Spark: {game.golem?.hp ?? "—"} • Sphere: {game.chapter ?? "—"}
           </div>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -75,7 +75,7 @@ export default function PostGame() {
                 <div className="flex items-center justify-between gap-2">
                   <div className="text-xs font-extrabold text-white">{e.result.toUpperCase()}</div>
                   <div className="text-[11px] font-semibold text-white/50">
-                    Chapter {e.chapter} • Step {e.step} • {e.terrainSuit.toUpperCase()}
+                    Sphere {e.chapter} • Step {e.step} • {e.terrainSuit.toUpperCase()}
                   </div>
                 </div>
                 <div className="mt-1 text-sm text-white/70">
@@ -91,4 +91,3 @@ export default function PostGame() {
     </div>
   );
 }
-
