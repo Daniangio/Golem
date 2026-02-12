@@ -35,6 +35,15 @@ export default function Profile() {
     return items;
   }, [games]);
 
+  const openGames = useMemo(
+    () => sorted.filter((g) => (g.status ?? "lobby") !== "completed"),
+    [sorted]
+  );
+  const finishedGames = useMemo(
+    () => sorted.filter((g) => (g.status ?? "lobby") === "completed"),
+    [sorted]
+  );
+
   async function onSaveName() {
     if (!user) return;
     setBusy(true);
@@ -101,24 +110,63 @@ export default function Profile() {
         {sorted.length === 0 ? (
           <p className="mt-2 text-sm text-slate-600">No games yet.</p>
         ) : (
-          <div className="mt-3 grid gap-2">
-            {sorted.map((g) => (
-              <button
-                key={g.id}
-                onClick={() => nav(`/game/${g.id}`)}
-                className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-sm shadow-sm hover:bg-slate-50"
-              >
-                <div>
-                  <div className="font-semibold text-slate-800">Game {g.id}</div>
-                  <div className="text-xs text-slate-500">Status: {g.status}</div>
+          <div className="mt-3 space-y-4">
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Open games</div>
+              {openGames.length === 0 ? (
+                <p className="mt-1 text-sm text-slate-500">No open games.</p>
+              ) : (
+                <div className="mt-2 grid gap-2">
+                  {openGames.map((g) => (
+                    <button
+                      key={g.id}
+                      onClick={() => nav(`/game/${g.id}`)}
+                      className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-sm shadow-sm hover:bg-slate-50"
+                    >
+                      <div>
+                        <div className="font-semibold text-slate-800">Game {g.id}</div>
+                        <div className="text-xs text-slate-500">Status: {g.status}</div>
+                      </div>
+                      <span
+                        className={`text-xs font-semibold ${
+                          g.status === "active" ? "text-emerald-700" : "text-slate-500"
+                        }`}
+                      >
+                        {g.status === "active" ? "Active" : "Lobby"}
+                      </span>
+                    </button>
+                  ))}
                 </div>
-                <span className="text-xs font-semibold text-slate-500">Open</span>
-              </button>
-            ))}
+              )}
+            </div>
+
+            <div>
+              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Finished games</div>
+              {finishedGames.length === 0 ? (
+                <p className="mt-1 text-sm text-slate-500">No finished games.</p>
+              ) : (
+                <div className="mt-2 grid gap-2">
+                  {finishedGames.map((g) => (
+                    <button
+                      key={g.id}
+                      onClick={() => nav(`/game/${g.id}/post`)}
+                      className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-sm shadow-sm hover:bg-slate-50"
+                    >
+                      <div>
+                        <div className="font-semibold text-slate-800">Game {g.id}</div>
+                        <div className="text-xs text-slate-500">Completed</div>
+                      </div>
+                      <span className="text-xs font-semibold text-slate-500">
+                        {g.endedReason === "win" ? "Win" : g.endedReason === "loss" ? "Loss" : "Done"}
+                      </span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
           </div>
         )}
       </div>
     </div>
   );
 }
-

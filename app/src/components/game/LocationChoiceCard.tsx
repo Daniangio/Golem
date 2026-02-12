@@ -16,11 +16,13 @@ export function LocationChoiceCard({
   location,
   votes,
   onVote,
+  voteDisabled = false,
 }: {
   sphere: number;
   location: LocationCard;
   votes: PlayerSlot[];
   onVote: () => void;
+  voteDisabled?: boolean;
 }) {
   const [flipped, setFlipped] = useState(false);
   const frontImg = imgSrc(location.image);
@@ -30,7 +32,7 @@ export function LocationChoiceCard({
       <button
         type="button"
         onClick={() => setFlipped((v) => !v)}
-        className="group relative h-[360px] w-[250px] rounded-3xl bg-transparent [perspective:1200px] sm:h-[420px] sm:w-[290px]"
+        className="group relative h-[320px] w-[220px] rounded-3xl bg-transparent [perspective:1200px] sm:h-[380px] sm:w-[260px]"
       >
         <div
           className={`absolute inset-0 rounded-3xl transition-transform duration-500 [transform-style:preserve-3d] ${
@@ -54,12 +56,29 @@ export function LocationChoiceCard({
               </div>
             )}
 
-            <div className="pointer-events-none absolute inset-x-0 top-0 flex items-center justify-between p-3">
-              <div className="rounded-full bg-black/60 px-3 py-1 text-xs font-semibold text-white/90 ring-1 ring-white/10">
-                Sphere {sphere}
+            <div className="pointer-events-none absolute inset-x-2 top-2 rounded-2xl bg-black/60 px-3 py-2 text-center text-[11px] font-extrabold leading-tight text-white ring-1 ring-white/10">
+              <div
+                style={{
+                  display: "-webkit-box",
+                  WebkitLineClamp: 2,
+                  WebkitBoxOrient: "vertical",
+                  overflow: "hidden",
+                }}
+              >
+                {location.name}
               </div>
-              <div className="rounded-full bg-black/60 px-3 py-1 text-xs font-semibold text-white/80 ring-1 ring-white/10">
-                Click to flip
+            </div>
+
+            <div className="pointer-events-none absolute inset-x-2 bottom-2 rounded-2xl bg-black/60 px-3 py-2 text-[10px] font-semibold leading-tight text-white/90 ring-1 ring-white/10">
+              <div
+                style={{
+                  display: "-webkit-box",
+                  WebkitLineClamp: 3,
+                  WebkitBoxOrient: "vertical",
+                  overflow: "hidden",
+                }}
+              >
+                {location.rule}
               </div>
             </div>
           </div>
@@ -121,7 +140,8 @@ export function LocationChoiceCard({
       <div className="flex items-center justify-between gap-2">
         <button
           onClick={onVote}
-          className="w-full rounded-2xl bg-white px-4 py-2 text-sm font-extrabold text-slate-900 shadow-sm hover:bg-slate-50"
+          disabled={voteDisabled}
+          className="w-full rounded-2xl bg-white px-4 py-2 text-sm font-extrabold text-slate-900 shadow-sm hover:bg-slate-50 disabled:cursor-not-allowed disabled:opacity-50"
         >
           Vote
         </button>

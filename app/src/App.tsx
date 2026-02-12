@@ -25,6 +25,10 @@ export default function App() {
   const displayName = user?.displayName || user?.email || "Player";
   const inGame = loc.pathname.startsWith("/game/");
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [terrainAnimDebug, setTerrainAnimDebug] = useState(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("golem_debug_terrain_anim") === "1";
+  });
 
   useEffect(() => {
     if (!user) return;
@@ -93,6 +97,24 @@ export default function App() {
                   >
                     Profile
                   </Link>
+                  <label className="flex items-center justify-between rounded-2xl bg-white/10 px-4 py-2 text-sm font-semibold text-white/90 ring-1 ring-white/10">
+                    <span>Terrain anim debug</span>
+                    <input
+                      type="checkbox"
+                      checked={terrainAnimDebug}
+                      onChange={(e) => {
+                        const next = e.target.checked;
+                        setTerrainAnimDebug(next);
+                        if (next) {
+                          window.localStorage.setItem("golem_debug_terrain_anim", "1");
+                        } else {
+                          window.localStorage.removeItem("golem_debug_terrain_anim");
+                          window.sessionStorage.removeItem("golem_debug_terrain_anim_events");
+                        }
+                      }}
+                      className="h-4 w-4 accent-emerald-500"
+                    />
+                  </label>
                   <button
                     type="button"
                     onClick={() => signOut(auth)}

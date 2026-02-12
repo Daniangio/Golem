@@ -2,7 +2,6 @@ import React, { useEffect, useMemo, useRef, useState } from "react";
 import { useNavigate, useParams } from "react-router-dom";
 import {
   addBot,
-  autoVoteBots,
   confirmLocation,
   confirmParts,
   completeGame,
@@ -28,9 +27,11 @@ import {
 } from "../lib/firestoreGames";
 import { useAuthUser } from "../lib/useAuth";
 import { getLocationById, getLocationsForStage, getPartById, type LocationCard } from "../game/locations";
-import { DeckStub, PulseCardMini, PulseCardPreview, TerrainCardView } from "../components/game/PulseCards";
-import { SphereLocationImages } from "../components/game/SphereLocationImages";
+import { DeckStub, PulseCardMini, PulseCardPreview } from "../components/game/PulseCards";
+import { CardBack } from "../components/game/CardBack";
+import { AnimatedTerrainCard } from "../components/game/AnimatedTerrainCard";
 import { CommunionExchangePanel, PlayerBottomPanel } from "../components/game/PlayerBottomPanel";
+import { LocationShowcase } from "../components/game/LocationShowcase";
 import { DiscardModal, OutcomeHistoryModal, TerrainDeckModal } from "../components/game/GameModals";
 import type { PlayerSlot, Players } from "../types";
 import { GameLobbyView } from "./game/GameLobbyView";
@@ -64,7 +65,16 @@ export default function Game() {
   const [showTerrainModal, setShowTerrainModal] = useState(false);
   const [showFacultyModal, setShowFacultyModal] = useState(false);
   const [locationCarouselIndex, setLocationCarouselIndex] = useState(0);
+  const [resolvingLocationId, setResolvingLocationId] = useState<string | null>(null);
   const facultyPopoverRef = useRef<HTMLDivElement | null>(null);
+  const resolvingVotesKeyRef = useRef<string | null>(null);
+  const confirmingLocationRef = useRef(false);
+  const [sparkAnim, setSparkAnim] = useState<{ type: "gain" | "loss"; tick: number } | null>(null);
+  const [frictionAnim, setFrictionAnim] = useState<{ type: "up" | "down"; tick: number } | null>(null);
+  const sparkAnimTimerRef = useRef<number | null>(null);
+  const frictionAnimTimerRef = useRef<number | null>(null);
+  const prevSparkRef = useRef<number | null>(null);
+  const prevFrictionRef = useRef<number | null>(null);
 
   const [game, setGame] = useState<GameSummary | null | undefined>(undefined);
   const [err, setErr] = useState<string | null>(null);
@@ -240,20 +250,6 @@ export default function Game() {
     });
   }
 
-  async function onAutoVoteBots() {
-    return guarded(async () => {
-      if (!uid || !gameId) return;
-      await autoVoteBots(gameId, uid);
-    });
-  }
-
-  async function onConfirmLocation() {
-    return guarded(async () => {
-      if (!uid || !gameId) return;
-      await confirmLocation(gameId, uid);
-    });
-  }
-
   async function onPickPart(partId: string | null) {
     return guarded(async () => {
       if (!uid || !gameId || !game || !actingSeat) return;
@@ -274,6 +270,102 @@ export default function Game() {
       await completeGame(gameId, uid);
     });
   }
+
+  const sparkValue = game?.golem?.hp ?? 5;
+  const frictionValue = game?.golem?.heat ?? 0;
+
+  useEffect(() => {
+    return () => {
+      if (sparkAnimTimerRef.current) window.clearTimeout(sparkAnimTimerRef.current);
+      if (frictionAnimTimerRef.current) window.clearTimeout(frictionAnimTimerRef.current);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!game || game.status === "lobby") {
+      prevSparkRef.current = null;
+      prevFrictionRef.current = null;
+      return;
+    }
+
+    const prevSpark = prevSparkRef.current;
+    const prevFriction = prevFrictionRef.current;
+
+    if (prevSpark !== null) {
+      if (sparkValue > prevSpark) {
+        setSparkAnim({ type: "gain", tick: Date.now() });
+        if (sparkAnimTimerRef.current) window.clearTimeout(sparkAnimTimerRef.current);
+        sparkAnimTimerRef.current = window.setTimeout(() => setSparkAnim(null), 900);
+      } else if (sparkValue < prevSpark) {
+        setSparkAnim({ type: "loss", tick: Date.now() });
+        if (sparkAnimTimerRef.current) window.clearTimeout(sparkAnimTimerRef.current);
+        sparkAnimTimerRef.current = window.setTimeout(() => setSparkAnim(null), 900);
+      }
+    }
+
+    if (prevFriction !== null) {
+      if (frictionValue > prevFriction) {
+        setFrictionAnim({ type: "up", tick: Date.now() });
+        if (frictionAnimTimerRef.current) window.clearTimeout(frictionAnimTimerRef.current);
+        frictionAnimTimerRef.current = window.setTimeout(() => setFrictionAnim(null), 900);
+      } else if (frictionValue < prevFriction) {
+        setFrictionAnim({ type: "down", tick: Date.now() });
+        if (frictionAnimTimerRef.current) window.clearTimeout(frictionAnimTimerRef.current);
+        frictionAnimTimerRef.current = window.setTimeout(() => setFrictionAnim(null), 900);
+      }
+    }
+
+    prevSparkRef.current = sparkValue;
+    prevFrictionRef.current = frictionValue;
+  }, [game, sparkValue, frictionValue]);
+
+  useEffect(() => {
+    if (!game || game.phase !== "choose_location") {
+      setResolvingLocationId(null);
+      resolvingVotesKeyRef.current = null;
+      confirmingLocationRef.current = false;
+      return;
+    }
+
+    const locationVotes = game.locationVotes ?? {};
+    const playersNow = game.players ?? {};
+    const allVotesIn = SLOTS.every((s) => Boolean(playersNow[s]) && Boolean(locationVotes[s]));
+    if (!allVotesIn || resolvingLocationId || confirmingLocationRef.current) return;
+
+    const key = SLOTS.map((s) => `${s}:${locationVotes[s] ?? ""}`).join("|");
+    if (resolvingVotesKeyRef.current === key) return;
+
+    const counts = new Map<string, number>();
+    for (const seat of SLOTS) {
+      const vote = locationVotes[seat];
+      if (!vote) continue;
+      counts.set(vote, (counts.get(vote) ?? 0) + 1);
+    }
+
+    let best = 0;
+    let tied: string[] = [];
+    counts.forEach((c, k) => {
+      if (c > best) {
+        best = c;
+        tied = [k];
+      } else if (c === best) {
+        tied.push(k);
+      }
+    });
+    if (!tied.length) return;
+
+    tied.sort();
+    const base = `${gameId ?? ""}|${key}`;
+    let hash = 0;
+    for (let i = 0; i < base.length; i += 1) {
+      hash = (hash * 31 + base.charCodeAt(i)) >>> 0;
+    }
+    const winnerId = tied[hash % tied.length] ?? null;
+    if (!winnerId) return;
+
+    resolvingVotesKeyRef.current = key;
+    setResolvingLocationId(winnerId);
+  }, [game, gameId, resolvingLocationId]);
 
   if (err) {
     return (
@@ -316,8 +408,8 @@ export default function Game() {
     );
   }
 
-  const spark = game.golem?.hp ?? 5;
-  const friction = game.golem?.heat ?? 0;
+  const spark = sparkValue;
+  const friction = frictionValue;
   const sphere = game.chapter ?? 1;
 
   const location = getLocationById(game.locationId ?? null);
@@ -341,8 +433,7 @@ export default function Game() {
     return m;
   })();
 
-  const canConfirmLocation =
-    isHost &&
+  const allLocationVotesIn =
     game.phase === "choose_location" &&
     SLOTS.every((s) => Boolean(players[s]) && Boolean(game.locationVotes?.[s]));
 
@@ -508,6 +599,16 @@ export default function Game() {
   const sphereImageUrl = imgSrc(locationOptions[0]?.sphereImage ?? location?.sphereImage ?? null);
   const locationImageUrl = imgSrc(location?.image ?? null);
 
+  async function onLocationResolveAnimationDone() {
+    if (!uid || !gameId || !isHost || !resolvingLocationId || confirmingLocationRef.current) return;
+    confirmingLocationRef.current = true;
+    await guarded(async () => {
+      if (!uid || !gameId || !resolvingLocationId) return;
+      await confirmLocation(gameId, uid, resolvingLocationId);
+    });
+    confirmingLocationRef.current = false;
+  }
+
   return (
     <div className="h-full w-full text-white">
       <div className="grid h-full grid-rows-[5%_5%_minmax(0,1fr)_20%] gap-1">
@@ -540,12 +641,16 @@ export default function Game() {
 
         <div className="shrink-0 rounded-3xl bg-white/5 px-2 py-1 ring-1 ring-white/10">
           <div className="flex h-full items-center gap-2">
-            <div className="shrink-0 rounded-2xl bg-white/5 px-2 py-1 text-[11px] font-extrabold text-white ring-1 ring-white/10">
-              ✦ {spark}
-            </div>
-            <div className="shrink-0 rounded-2xl bg-white/5 px-2 py-1 text-[11px] font-extrabold text-white ring-1 ring-white/10">
-              ⟁ {friction}
-            </div>
+            {game.phase !== "play" && (
+              <>
+                <div className="shrink-0 rounded-2xl bg-white/5 px-2 py-1 text-[11px] font-extrabold text-white ring-1 ring-white/10">
+                  ✦ {spark}
+                </div>
+                <div className="shrink-0 rounded-2xl bg-white/5 px-2 py-1 text-[11px] font-extrabold text-white ring-1 ring-white/10">
+                  ⟁ {friction}
+                </div>
+              </>
+            )}
             <div className="shrink-0 rounded-2xl bg-white/5 px-2 py-1 text-[11px] font-semibold text-white/70 ring-1 ring-white/10">
               Sphere <span className="ml-1 font-extrabold text-white">{sphere}</span>
             </div>
@@ -633,21 +738,17 @@ export default function Game() {
                     voteByValue={voteByValue}
                     locationCarouselIndex={locationCarouselIndex}
                     setLocationCarouselIndex={setLocationCarouselIndex}
-                    actingSeat={actingSeat}
-                    isHost={isHost}
                     busy={busy}
-                    canConfirmLocation={canConfirmLocation}
+                    voteLocked={allLocationVotesIn}
+                    resolvingWinnerId={allLocationVotesIn ? resolvingLocationId : null}
+                    onResolveAnimationDone={onLocationResolveAnimationDone}
                     onVoteLocation={(locationId) => void onVoteLocation(locationId)}
-                    onAutoVoteBots={() => void onAutoVoteBots()}
-                    onConfirmLocation={() => void onConfirmLocation()}
                   />
                 )}
 
                 {game.phase === "choose_parts" && location && (
                   <ChoosePartsPhase
                     location={location}
-                    sphere={sphere}
-                    sphereImageUrl={sphereImageUrl}
                     locationImageUrl={locationImageUrl}
                     selectedSeat={selectedSeat}
                     pickingSeat={actingSeat ?? selectedSeat}
@@ -662,129 +763,92 @@ export default function Game() {
                 )}
 
                 {game.phase === "play" && (
-                  <div className="grid h-full min-h-0 grid-cols-[minmax(0,16%)_minmax(0,1fr)] gap-2">
-                    <div className="min-h-0">
+                  <div className="h-full min-h-0 overflow-x-auto overflow-y-hidden pr-1">
+                    <div className="flex h-full min-w-max items-start gap-2">
                       {location ? (
-                        <>
-                          <SphereLocationImages
-                            sphere={sphere}
-                            sphereImageUrl={sphereImageUrl}
-                            locationName={location.name}
-                            locationImageUrl={locationImageUrl}
-                            orientation="row"
-                          />
-                          {locationTokens.length ? (
-                            <div className="mt-1 flex flex-wrap gap-1 px-1">
-                              {locationTokens.map((t) => (
-                                <span
-                                  key={t.key}
-                                  className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ${
-                                    t.tone === "good"
-                                      ? "bg-emerald-400/15 text-emerald-100 ring-emerald-200/20"
-                                      : "bg-white/10 text-white/60 ring-white/10"
-                                  }`}
-                                >
-                                  {t.label}
-                                </span>
-                              ))}
-                            </div>
-                          ) : null}
-                        </>
+                        <LocationShowcase
+                          locationName={location.name}
+                          locationRule={location.rule}
+                          locationImageUrl={locationImageUrl}
+                          locationTokens={locationTokens}
+                          spark={spark}
+                          friction={friction}
+                          sparkAnimClassName={
+                            sparkAnim?.type === "gain"
+                              ? "spark-stat-gain"
+                              : sparkAnim?.type === "loss"
+                                ? "spark-stat-loss"
+                                : undefined
+                          }
+                          frictionAnimClassName={
+                            frictionAnim?.type === "up"
+                              ? "friction-stat-up"
+                              : frictionAnim?.type === "down"
+                                ? "friction-stat-down"
+                                : undefined
+                          }
+                        />
                       ) : (
-                        <div className="rounded-2xl bg-white/5 p-3 text-sm text-white/70 ring-1 ring-white/10">
+                        <div className="w-[260px] shrink-0 rounded-2xl bg-slate-950/85 p-3 text-sm text-white/70 ring-1 ring-white/10">
                           No location chosen yet.
                         </div>
                       )}
-                    </div>
 
-                    <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-2">
-                      <div className="grid min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-2">
-                        <div className="grid grid-cols-7 gap-2">
-                          <div className="rounded-2xl col-span-3 bg-white/5 p-2 ring-1 ring-white/10">
-                            <div className="flex items-center justify-between">
-                              <div className="text-xs font-semibold text-white/70">Terrain</div>
-                              <div className="text-[11px] font-semibold text-white/50">{terrainRemaining} left</div>
-                            </div>
-                            <div className="mt-1 flex flex-wrap items-center gap-2">
-                                  <DeckStub
-                                    label="Deck"
-                                    count={terrainRemaining}
-                                    onClick={
-                                      !isPreSelection &&
-                                      terrainDeck.length &&
-                                      SLOTS.some((s) => seatHasEffect(s, "peek_terrain_deck"))
-                                        ? () => setShowTerrainModal(true)
-                                        : undefined
-                                    }
-                                  />
-                                  {terrain ? (
-                                    isPreSelection ? (
-                                      <div className="relative h-[110px] w-[80px] rounded-xl bg-gradient-to-b from-slate-700/40 to-slate-950 p-4 shadow-xl ring-1 ring-white/10">
-                                        <div className="text-[11px] font-semibold text-white/60">Unrevealed</div>
-                                        <div className="mt-2 text-sm font-extrabold text-white">???</div>
-                                        <div className="mt-2 text-[10px] text-white/60">Pre-selection</div>
-                                      </div>
-                                    ) : selectedHasEffect("hide_terrain_until_played") &&
-                                      pulsePhase === "selection" &&
-                                      !played[selectedSeat]?.card ? (
-                                      <div className="relative h-[110px] w-[80px] rounded-xl bg-gradient-to-b from-slate-700/40 to-slate-950 p-4 shadow-xl ring-1 ring-white/10">
-                                        <div className="text-[11px] font-semibold text-white/60">Hidden</div>
-                                        <div className="mt-2 text-sm font-extrabold text-white">???</div>
-                                        <div className="mt-2 text-[10px] text-white/60">Play first</div>
-                                      </div>
-                                    ) : (
-                                      <TerrainCardView suit={terrain.suit} min={terrain.min} max={terrain.max} />
-                                    )
-                                  ) : (
-                                    <div className="text-sm text-white/60">No terrain.</div>
-                                  )}
-                            </div>
-	                        </div>
-	                      <div className="rounded-2xl col-span-3 bg-white/5 p-2 ring-1 ring-white/10">
-	                        <div className="flex items-center justify-between gap-2">
-	                          <div className="text-xs font-semibold text-white/70">Akashic Reservoir</div>
-	                          <div className="text-[11px] font-semibold text-white/50">Phase: {pulsePhase}</div>
-	                        </div>
-	                        <div className="mt-3 flex flex-wrap items-center justify-center gap-3">
-	                          {game.reservoir ? (
-	                            <div className="flex flex-col items-center gap-1">
-	                              <PulseCardPreview card={game.reservoir} />
-	                            </div>
-	                          ) : null}
-	                          {game.reservoir2 ? (
-	                            <div className="flex flex-col items-center gap-1">
-	                              <PulseCardPreview card={game.reservoir2} />
-	                            </div>
-	                          ) : null}
-	                          {!game.reservoir && !game.reservoir2 ? (
-	                            <div className="text-sm text-white/60">No reservoir.</div>
-	                          ) : null}
-	                        </div>
-	                      </div>
-
-                        <div className="max-w-[10vw] grid grid-rows-2 flex items-center justify-center">
-                        <button
-                          type="button"
-                          onClick={() => setShowDiscardModal(true)}
-                          className="flex items-center justify-center rounded-full bg-white/10 px-3 py-2 text-sm font-extrabold text-white ring-1 ring-white/10 hover:bg-white/15"
-                          aria-label="Inspect discard pile"
-                          title="Discard pile"
-                        >
-                          🗑 <span className="ml-2 text-[11px] font-semibold text-white/70">{discardAll.length}</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setShowLogModal(true)}
-                          className="flex items-center justify-center rounded-full bg-white/10 px-3 py-2 text-sm font-extrabold text-white ring-1 ring-white/10 hover:bg-white/15"
-                          aria-label="Inspect history"
-                          title="History"
-                        >
-                          📜 <span className="ml-2 text-[11px] font-semibold text-white/70">{outcomeLog.length}</span>
-                        </button>
-                      </div>
+                      <div className="w-[220px] shrink-0 rounded-2xl bg-white/5 p-2 ring-1 ring-white/10">
+                        <div className="flex items-center justify-between">
+                          <div className="text-xs font-semibold text-white/70">Terrain</div>
+                          <div className="text-[11px] font-semibold text-white/50">{terrainRemaining} left</div>
                         </div>
+                        <div className="mt-2 flex items-center justify-center gap-2">
+                          <DeckStub
+                            label="Deck"
+                            count={terrainRemaining}
+                            onClick={
+                              !isPreSelection &&
+                              terrainDeck.length &&
+                              SLOTS.some((s) => seatHasEffect(s, "peek_terrain_deck"))
+                                ? () => setShowTerrainModal(true)
+                                : undefined
+                            }
+                          />
+                          <AnimatedTerrainCard
+                            terrain={terrain}
+                            hiddenState={
+                              isPreSelection
+                                ? "pre_selection"
+                                : selectedHasEffect("hide_terrain_until_played") &&
+                                    pulsePhase === "selection" &&
+                                    !played[selectedSeat]?.card
+                                  ? "hidden_until_played"
+                                  : null
+                            }
+                            lastOutcomeResult={game.lastOutcome?.result}
+                          />
+                        </div>
+                      </div>
 
-                        <div className="min-h-0 rounded-3xl bg-white/5 p-3 ring-1 ring-white/10">
+                      <div className="w-[120px] shrink-0 rounded-2xl bg-white/5 p-2 ring-1 ring-white/10">
+                        <div className="flex items-center justify-center gap-2">
+                          <div className="text-xs font-semibold text-white/70">Akashic Reservoir</div>
+                        </div>
+                        <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
+                          {game.reservoir ? (
+                            <div className="flex flex-col items-center gap-2">
+                              <PulseCardPreview card={game.reservoir} />
+                            </div>
+                          ) : null}
+                          {game.reservoir2 ? (
+                            <div className="flex flex-col items-center gap-2">
+                              <PulseCardPreview card={game.reservoir2} />
+                            </div>
+                          ) : null}
+                          {!game.reservoir && !game.reservoir2 ? (
+                            <div className="text-sm text-white/60">No reservoir.</div>
+                          ) : null}
+                        </div>
+                      </div>
+
+                      <div className="w-[330px] shrink-0 rounded-2xl bg-white/5 p-2 ring-1 ring-white/10">
                         <div className="flex flex-wrap items-center justify-between gap-2">
                           <div className="text-xs font-semibold text-white/70">Played cards</div>
                           <div className="flex flex-wrap items-center gap-2">
@@ -797,7 +861,7 @@ export default function Game() {
                                   })
                                 }
                                 disabled={busy || !haveAllPlayed || exchangePending}
-                                className="rounded-2xl bg-emerald-500 px-3 py-1.5 text-[11px] font-extrabold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-40"
+                                className="rounded-2xl bg-emerald-500 px-3 py-1 text-[11px] font-extrabold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-40"
                               >
                                 End actions
                               </button>
@@ -805,7 +869,7 @@ export default function Game() {
                           </div>
                         </div>
 
-                        <div className="mt-2 grid min-h-0 grid-cols-3 gap-2">
+                        <div className="mt-1 grid max-w-80 min-h-0 grid-cols-3 gap-1.5">
 		                          {SLOTS.map((s) => {
 		                            const entry = played[s];
 		                            const seatUid = players[s] ?? "";
@@ -829,30 +893,19 @@ export default function Game() {
 		                            const fused = entry?.valueOverride === 0;
 		                            const canFuseHere = Boolean(fuseAvailable && !fused && entry?.card);
                             return (
-                              <div key={s} className="relative rounded-2xl bg-white/5 p-3 ring-1 ring-white/10">
+                              <div key={s} className="relative rounded-2xl bg-white/5 p-2 ring-1 ring-white/10">
                                 <div className="flex items-center justify-between gap-0">
-                                  <div className="min-w-0 truncate text-[11px] font-semibold text-white/70">
+                                  <div className="min-w-0 truncate text-[10px] font-semibold text-white/70">
                                     {seatLabel(s)} • {seatName}
                                   </div>
-		                                  <div className="text-[10px] font-semibold text-white/45">
-		                                    {entry?.card
-		                                      ? pulsePhase === "selection" || pulsePhase === "pre_selection"
-		                                        ? showFaceUpInSelection
-		                                          ? revealedToAll && !isOwnOrControlled
-		                                            ? "Face-up"
-		                                            : "Your card"
-		                                          : "Covered"
-		                                        : "Revealed"
-		                                      : "—"}
-		                                  </div>
 	                                </div>
-	                                <div className="mt-2 flex items-center justify-center">
+	                                <div className="mt-1 flex items-center justify-center">
 		                                  {entry?.card ? (
 		                                    pulsePhase === "selection" || pulsePhase === "pre_selection" ? (
 	                                      showFaceUpInSelection ? (
 	                                        <PulseCardMini card={entry.card} selected={false} lift="none" onClick={() => {}} />
 	                                      ) : (
-	                                        <div className="h-[110px] w-[80px] rounded-xl bg-gradient-to-b from-slate-700/40 to-slate-950 shadow-xl ring-1 ring-white/10" />
+	                                        <CardBack />
 	                                      )
 	                                    ) : (
 	                                      <div className="flex flex-row items-center gap-1">
@@ -906,7 +959,7 @@ export default function Game() {
 	                                                  }
 	                                                  disabled={busy}
 	                                                  className="rounded-full bg-fuchsia-400 px-3 py-1 text-[11px] font-extrabold text-slate-950 shadow disabled:opacity-40"
-	                                                >
+		                                                >
 	                                                  Dissolve → 0
 	                                                </button>
                                               )}
@@ -929,7 +982,7 @@ export default function Game() {
                                       </div>
                                     )
                                   ) : (
-                                    <div className="text-sm text-white/50">Not played yet.</div>
+                                    <div className="text-xs text-white/50">Not played yet.</div>
                                   )}
                                 </div>
                               </div>
@@ -937,6 +990,26 @@ export default function Game() {
                           })}
                         </div>
                       </div>
+
+                      <div className="grid h-[224px] w-[72px] shrink-0 grid-rows-2 items-center gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setShowDiscardModal(true)}
+                          className="flex items-center justify-center rounded-full bg-white/10 px-3 py-2 text-sm font-extrabold text-white ring-1 ring-white/10 hover:bg-white/15"
+                          aria-label="Inspect discard pile"
+                          title="Discard pile"
+                        >
+                          🗑 <span className="ml-2 text-[11px] font-semibold text-white/70">{discardAll.length}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => setShowLogModal(true)}
+                          className="flex items-center justify-center rounded-full bg-white/10 px-3 py-2 text-sm font-extrabold text-white ring-1 ring-white/10 hover:bg-white/15"
+                          aria-label="Inspect history"
+                          title="History"
+                        >
+                          📜 <span className="ml-2 text-[11px] font-semibold text-white/70">{outcomeLog.length}</span>
+                        </button>
                       </div>
                     </div>
                   </div>
@@ -945,138 +1018,140 @@ export default function Game() {
             </div>
           </section>
 
-        <PlayerBottomPanel
-          seatTag={seatLabel(selectedSeat)}
-          playerName={selectedName}
-          viewOnly={Boolean(selectedUid && !canActForSelected)}
-          message={
-            <CommunionExchangePanel
-              exchange={exchange as any}
-              pending={exchangePending}
-              canOffer={canOfferExchange}
-              canReturn={canReturnExchange}
-              recipients={exchangeRecipients}
-              fromHand={exchange?.from ? (hands[exchange.from] ?? []) : []}
-              toHand={exchange?.to ? (hands[exchange.to] ?? []) : []}
-              selectedCardId={selectedCardId}
-              busy={busy}
-              onOfferTo={(to, cardId) =>
-                void guarded(async () => {
-                  if (!uid || !gameId || !exchange?.from) return;
-                  await offerExchangeCard(gameId, uid, exchange.from, to, cardId);
-                })
-              }
-              onReturn={(cardId) =>
-                void guarded(async () => {
-                  if (!uid || !gameId || !exchange?.to) return;
-                  await returnExchangeCard(gameId, uid, exchange.to, cardId);
-                })
-              }
-            />
-          }
-          canSeeHand={canSeeSelectedHand}
-          hand={canSeeSelectedHand ? selectedHand : selectedHandRaw}
-          selectedCardId={selectedCardId}
-          onToggleSelectCard={(cardId) => setSelectedCardId((prev) => (prev === cardId ? null : cardId))}
-          canPlaySelected={Boolean(selectedCardId && canPlayFromSelected)}
-          onPlaySelected={() =>
-            void guarded(async () => {
-              if (!uid || !gameId || !actingSeat || !selectedCardId) return;
-              await playCard(gameId, uid, actingSeat, selectedCardId);
-            })
-          }
-          canOverflowSelected={Boolean(selectedCardId && canAuxBatteryFromSelected)}
-          onOverflowSelected={() =>
-            void guarded(async () => {
-              if (!uid || !gameId || !actingSeat || !selectedCardId) return;
-              await playAuxBatteryCard(gameId, uid, actingSeat, selectedCardId);
-            })
-          }
-          busy={busy}
-          icons={
-            <>
-              <div ref={facultyPopoverRef} className="relative">
-                <button
-                  type="button"
-                  onClick={() => setShowFacultyModal((v) => !v)}
-                  disabled={!selectedPartDetail}
-                  className="flex h-9 w-9 items-center justify-center rounded-2xl bg-white/10 text-sm font-extrabold text-white ring-1 ring-white/10 transition hover:bg-white/15 disabled:opacity-40"
-                  title={selectedPartDetail ? selectedPartDetail.name : "No faculty"}
-                  aria-haspopup="dialog"
-                  aria-expanded={showFacultyModal}
-                >
-                  ✦
-                </button>
+        {game.phase !== "choose_location" && game.phase !== "choose_parts" && (
+          <PlayerBottomPanel
+            seatTag={seatLabel(selectedSeat)}
+            playerName={selectedName}
+            viewOnly={Boolean(selectedUid && !canActForSelected)}
+            message={
+              <CommunionExchangePanel
+                exchange={exchange as any}
+                pending={exchangePending}
+                canOffer={canOfferExchange}
+                canReturn={canReturnExchange}
+                recipients={exchangeRecipients}
+                fromHand={exchange?.from ? (hands[exchange.from] ?? []) : []}
+                toHand={exchange?.to ? (hands[exchange.to] ?? []) : []}
+                selectedCardId={selectedCardId}
+                busy={busy}
+                onOfferTo={(to, cardId) =>
+                  void guarded(async () => {
+                    if (!uid || !gameId || !exchange?.from) return;
+                    await offerExchangeCard(gameId, uid, exchange.from, to, cardId);
+                  })
+                }
+                onReturn={(cardId) =>
+                  void guarded(async () => {
+                    if (!uid || !gameId || !exchange?.to) return;
+                    await returnExchangeCard(gameId, uid, exchange.to, cardId);
+                  })
+                }
+              />
+            }
+            canSeeHand={canSeeSelectedHand}
+            hand={canSeeSelectedHand ? selectedHand : selectedHandRaw}
+            selectedCardId={selectedCardId}
+            onToggleSelectCard={(cardId) => setSelectedCardId((prev) => (prev === cardId ? null : cardId))}
+            canPlaySelected={Boolean(selectedCardId && canPlayFromSelected)}
+            onPlaySelected={() =>
+              void guarded(async () => {
+                if (!uid || !gameId || !actingSeat || !selectedCardId) return;
+                await playCard(gameId, uid, actingSeat, selectedCardId);
+              })
+            }
+            canOverflowSelected={Boolean(selectedCardId && canAuxBatteryFromSelected)}
+            onOverflowSelected={() =>
+              void guarded(async () => {
+                if (!uid || !gameId || !actingSeat || !selectedCardId) return;
+                await playAuxBatteryCard(gameId, uid, actingSeat, selectedCardId);
+              })
+            }
+            busy={busy}
+            icons={
+              <>
+                <div ref={facultyPopoverRef} className="relative">
+                  <button
+                    type="button"
+                    onClick={() => setShowFacultyModal((v) => !v)}
+                    disabled={!selectedPartDetail}
+                    className="flex h-9 w-9 items-center justify-center rounded-2xl bg-white/10 text-sm font-extrabold text-white ring-1 ring-white/10 transition hover:bg-white/15 disabled:opacity-40"
+                    title={selectedPartDetail ? selectedPartDetail.name : "No faculty"}
+                    aria-haspopup="dialog"
+                    aria-expanded={showFacultyModal}
+                  >
+                    ✦
+                  </button>
 
-                {showFacultyModal && (
-                  <div className="absolute bottom-full right-0 z-50 mb-2 w-[min(320px,calc(100vw-2rem))]">
-                    <div className="rounded-3xl bg-slate-950 p-4 text-white shadow-2xl ring-1 ring-white/10">
-                      <div className="flex items-start justify-between gap-3">
-                        <div className="min-w-0">
-                          <div className="text-[11px] font-semibold text-white/60">Faculty</div>
-                          <div className="mt-1 truncate text-sm font-extrabold text-white">
-                            {seatLabel(selectedSeat)} • {selectedName}
-                          </div>
-                        </div>
-                        <button
-                          type="button"
-                          onClick={() => setShowFacultyModal(false)}
-                          className="shrink-0 rounded-full bg-white/10 px-2 py-1 text-[11px] font-semibold text-white/80 hover:bg-white/15"
-                          aria-label="Close faculty details"
-                        >
-                          Close
-                        </button>
-                      </div>
-
-                      {selectedPartDetail ? (
-                        <div className="mt-3 rounded-2xl bg-white/5 p-3 ring-1 ring-white/10">
-                          <div className="flex flex-wrap items-center justify-between gap-2">
-                            <div className="text-sm font-extrabold text-white">{selectedPartDetail.name}</div>
-                            <div className="flex items-center gap-2">
-                              {selectedPartToken && (
-                                <span
-                                  className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ${
-                                    selectedPartToken.tone === "good"
-                                      ? "bg-emerald-400/20 text-emerald-200 ring-emerald-200/20"
-                                      : "bg-white/10 text-white/70 ring-white/10"
-                                  }`}
-                                >
-                                  {selectedPartToken.label}
-                                </span>
-                              )}
-                              <span
-                                className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                                  selectedPartDetail.type === "compulsory"
-                                    ? "bg-amber-400/20 text-amber-200"
-                                    : "bg-slate-200/10 text-slate-200"
-                                }`}
-                              >
-                                {selectedPartDetail.type}
-                              </span>
+                  {showFacultyModal && (
+                    <div className="absolute bottom-full right-0 z-50 mb-2 w-[min(320px,calc(100vw-2rem))]">
+                      <div className="rounded-3xl bg-slate-950 p-4 text-white shadow-2xl ring-1 ring-white/10">
+                        <div className="flex items-start justify-between gap-3">
+                          <div className="min-w-0">
+                            <div className="text-[11px] font-semibold text-white/60">Faculty</div>
+                            <div className="mt-1 truncate text-sm font-extrabold text-white">
+                              {seatLabel(selectedSeat)} • {selectedName}
                             </div>
                           </div>
-                          <div className="mt-2 text-[11px] leading-relaxed text-white/80">{selectedPartDetail.effect}</div>
+                          <button
+                            type="button"
+                            onClick={() => setShowFacultyModal(false)}
+                            className="shrink-0 rounded-full bg-white/10 px-2 py-1 text-[11px] font-semibold text-white/80 hover:bg-white/15"
+                            aria-label="Close faculty details"
+                          >
+                            Close
+                          </button>
                         </div>
-                      ) : (
-                        <div className="mt-3 rounded-2xl bg-white/5 p-3 text-[11px] text-white/70 ring-1 ring-white/10">
-                          No faculty chosen yet.
-                        </div>
-                      )}
+
+                        {selectedPartDetail ? (
+                          <div className="mt-3 rounded-2xl bg-white/5 p-3 ring-1 ring-white/10">
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="text-sm font-extrabold text-white">{selectedPartDetail.name}</div>
+                              <div className="flex items-center gap-2">
+                                {selectedPartToken && (
+                                  <span
+                                    className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ${
+                                      selectedPartToken.tone === "good"
+                                        ? "bg-emerald-400/20 text-emerald-200 ring-emerald-200/20"
+                                        : "bg-white/10 text-white/70 ring-white/10"
+                                    }`}
+                                  >
+                                    {selectedPartToken.label}
+                                  </span>
+                                )}
+                                <span
+                                  className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                                    selectedPartDetail.type === "compulsory"
+                                      ? "bg-amber-400/20 text-amber-200"
+                                      : "bg-slate-200/10 text-slate-200"
+                                  }`}
+                                >
+                                  {selectedPartDetail.type}
+                                </span>
+                              </div>
+                            </div>
+                            <div className="mt-2 text-[11px] leading-relaxed text-white/80">{selectedPartDetail.effect}</div>
+                          </div>
+                        ) : (
+                          <div className="mt-3 rounded-2xl bg-white/5 p-3 text-[11px] text-white/70 ring-1 ring-white/10">
+                            No faculty chosen yet.
+                          </div>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                )}
-              </div>
-              <div className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] font-semibold text-white/75 ring-1 ring-white/10">
-                🂠 {selectedHandRaw.length}
-              </div>
-            </>
-          }
-          hiddenNote={
-            !canSeeSelectedHand && selectedUid ? (
-              <>Viewing another player — cards are hidden.</>
-            ) : null
-          }
-        />
+                  )}
+                </div>
+                <div className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] font-semibold text-white/75 ring-1 ring-white/10">
+                  🂠 {selectedHandRaw.length}
+                </div>
+              </>
+            }
+            hiddenNote={
+              !canSeeSelectedHand && selectedUid ? (
+                <>Viewing another player — cards are hidden.</>
+              ) : null
+            }
+          />
+        )}
       </div>
 
       <DiscardModal

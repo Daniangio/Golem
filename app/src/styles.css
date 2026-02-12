@@ -6,3 +6,282 @@
     height: 100%;
   }
 }
+
+@layer components {
+  .terrain-win-out {
+    animation: terrain-win-out 520ms cubic-bezier(0.35, 0.05, 0.9, 0.2) forwards;
+    transform-origin: center center;
+  }
+
+  .terrain-win-out::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 0.75rem;
+    background: linear-gradient(160deg, rgb(255 255 255 / 0.95), rgb(255 255 255 / 0.2));
+    mix-blend-mode: screen;
+    animation: terrain-win-out-flash 520ms ease-out forwards;
+    pointer-events: none;
+  }
+
+  .terrain-win-in {
+    animation: terrain-win-in 620ms cubic-bezier(0.2, 0.95, 0.25, 1) forwards;
+    transform-origin: center center;
+  }
+
+  .terrain-win-in::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    border-radius: 0.75rem;
+    background:
+      radial-gradient(circle at 30% 20%, rgb(255 255 255 / 0.95), transparent 55%),
+      linear-gradient(145deg, rgb(255 255 255 / 0.8), rgb(255 255 255 / 0.08));
+    mix-blend-mode: screen;
+    animation: terrain-win-in-shine 620ms ease-out forwards;
+    pointer-events: none;
+  }
+
+  .rotating-glow-border {
+    position: relative;
+    overflow: hidden;
+    isolation: isolate;
+  }
+
+  .rotating-glow-border::before {
+    content: "";
+    position: absolute;
+    inset: -120%;
+    background: conic-gradient(
+      from 0deg,
+      rgb(255 255 255 / 0) 0deg,
+      rgb(255 255 255 / 0) 210deg,
+      rgb(167 243 208 / 0.9) 255deg,
+      rgb(45 212 191 / 0.95) 305deg,
+      rgb(255 255 255 / 0) 360deg
+    );
+    animation: rotating-glow-spin 4.5s linear infinite;
+    z-index: 0;
+  }
+
+  .location-winner-pulse {
+    animation: location-winner-pulse 620ms cubic-bezier(0.2, 0.85, 0.2, 1);
+  }
+
+  .location-winner-out {
+    animation: location-winner-out 700ms cubic-bezier(0.35, 0.05, 0.9, 0.2) forwards;
+  }
+
+  .spark-stat-gain {
+    animation: spark-stat-gain 900ms cubic-bezier(0.2, 0.85, 0.2, 1);
+  }
+
+  .spark-stat-loss {
+    animation: spark-stat-loss 900ms cubic-bezier(0.2, 0.85, 0.2, 1);
+  }
+
+  .friction-stat-up {
+    animation: friction-stat-up 900ms cubic-bezier(0.2, 0.85, 0.2, 1);
+  }
+
+  .friction-stat-down {
+    animation: friction-stat-down 900ms cubic-bezier(0.2, 0.85, 0.2, 1);
+  }
+
+  @keyframes rotating-glow-spin {
+    0% {
+      transform: rotate(0deg);
+    }
+    100% {
+      transform: rotate(360deg);
+    }
+  }
+
+  @keyframes spark-stat-gain {
+    0% {
+      transform: scale(1);
+      box-shadow: 0 0 0 0 rgb(56 189 248 / 0);
+      filter: brightness(1);
+    }
+    35% {
+      transform: scale(1.08);
+      box-shadow: 0 0 24px 5px rgb(56 189 248 / 0.45);
+      filter: brightness(1.35);
+    }
+    100% {
+      transform: scale(1);
+      box-shadow: 0 0 0 0 rgb(56 189 248 / 0);
+      filter: brightness(1);
+    }
+  }
+
+  @keyframes location-winner-pulse {
+    0% {
+      transform: scale(1);
+      filter: brightness(1);
+    }
+    40% {
+      transform: scale(1.05);
+      filter: brightness(1.45);
+    }
+    100% {
+      transform: scale(1);
+      filter: brightness(1);
+    }
+  }
+
+  @keyframes location-winner-out {
+    0% {
+      transform: scale(1) rotate(0deg);
+      filter: brightness(1) saturate(1);
+      opacity: 1;
+    }
+    20% {
+      transform: scale(1.05) rotate(0deg);
+      filter: brightness(1.8) saturate(0.45);
+      opacity: 1;
+    }
+    100% {
+      transform: scale(0.08) rotate(1120deg);
+      filter: brightness(1.05) saturate(0.2);
+      opacity: 0;
+    }
+  }
+
+  @keyframes spark-stat-loss {
+    0% {
+      transform: translateX(0) scale(1);
+      box-shadow: 0 0 0 0 rgb(248 113 113 / 0);
+      filter: brightness(1);
+    }
+    18% {
+      transform: translateX(-2px) scale(1.03);
+      box-shadow: 0 0 20px 4px rgb(248 113 113 / 0.45);
+      filter: brightness(1.25);
+    }
+    36% {
+      transform: translateX(2px) scale(1.03);
+    }
+    54% {
+      transform: translateX(-2px);
+    }
+    72% {
+      transform: translateX(2px);
+    }
+    100% {
+      transform: translateX(0) scale(1);
+      box-shadow: 0 0 0 0 rgb(248 113 113 / 0);
+      filter: brightness(1);
+    }
+  }
+
+  @keyframes friction-stat-up {
+    0% {
+      transform: translateX(0) scale(1);
+      box-shadow: 0 0 0 0 rgb(248 113 113 / 0);
+      filter: brightness(1);
+    }
+    14% {
+      transform: translateX(-2px) scale(1.02);
+      box-shadow: 0 0 24px 6px rgb(248 113 113 / 0.5);
+      filter: brightness(1.35);
+    }
+    28% {
+      transform: translateX(2px) scale(1.02);
+    }
+    42% {
+      transform: translateX(-2px) scale(1.01);
+    }
+    56% {
+      transform: translateX(2px) scale(1.01);
+    }
+    100% {
+      transform: translateX(0) scale(1);
+      box-shadow: 0 0 0 0 rgb(248 113 113 / 0);
+      filter: brightness(1);
+    }
+  }
+
+  @keyframes friction-stat-down {
+    0% {
+      transform: scale(1);
+      box-shadow: 0 0 0 0 rgb(56 189 248 / 0);
+      filter: brightness(1);
+    }
+    30% {
+      transform: scale(1.03);
+      box-shadow: 0 0 24px 6px rgb(56 189 248 / 0.55);
+      filter: brightness(1.4) saturate(1.15);
+    }
+    55% {
+      transform: scale(1);
+      box-shadow: 0 0 14px 3px rgb(59 130 246 / 0.35);
+      filter: brightness(1.2);
+    }
+    100% {
+      transform: scale(1);
+      box-shadow: 0 0 0 0 rgb(56 189 248 / 0);
+      filter: brightness(1);
+    }
+  }
+
+  @keyframes terrain-win-out {
+    0% {
+      transform: scale(1) rotate(0deg);
+      filter: brightness(1) saturate(1);
+      opacity: 1;
+    }
+    22% {
+      transform: scale(1.03) rotate(0deg);
+      filter: brightness(1.9) saturate(0.45);
+      opacity: 1;
+    }
+    100% {
+      transform: scale(0.08) rotate(1120deg);
+      filter: brightness(1.05) saturate(0.2);
+      opacity: 0;
+    }
+  }
+
+  @keyframes terrain-win-out-flash {
+    0% {
+      opacity: 0;
+    }
+    25% {
+      opacity: 0.95;
+    }
+    100% {
+      opacity: 0;
+    }
+  }
+
+  @keyframes terrain-win-in {
+    0% {
+      transform: translateX(-96px) translateY(10px) scale(0.16) rotate(-22deg);
+      filter: brightness(2.2) saturate(0.2);
+      opacity: 0.18;
+    }
+    38% {
+      transform: translateX(-36px) translateY(-10px) scale(0.72) rotate(10deg);
+      filter: brightness(2.4) saturate(0.3);
+      opacity: 1;
+    }
+    100% {
+      transform: translateX(0) translateY(0) scale(1) rotate(0deg);
+      filter: brightness(1) saturate(1);
+      opacity: 1;
+    }
+  }
+
+  @keyframes terrain-win-in-shine {
+    0% {
+      opacity: 1;
+    }
+    62% {
+      opacity: 0.65;
+    }
+    100% {
+      opacity: 0;
+    }
+  }
+}

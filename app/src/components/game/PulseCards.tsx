@@ -1,5 +1,6 @@
 import React from "react";
 import type { PulseCard, PulseSuit } from "../../types";
+import { CardBack } from "./CardBack";
 
 function suitMeta(suit: PulseSuit): { label: string; accent: string; bg: string } {
   switch (suit) {
@@ -40,7 +41,7 @@ export function PulseCardMini({
     <button
       type="button"
       onClick={onClick}
-      className={`relative h-[110px] w-[80px] rounded-2xl bg-gradient-to-b ${meta.bg} p-2 text-left shadow-xl ring-1 transition ${
+      className={`relative h-[120px] w-[80px] rounded-2xl bg-gradient-to-b ${meta.bg} p-2 text-left shadow-xl ring-1 transition ${
         selected ? "ring-white/60" : `ring-white/10 ${hoverLift} hover:ring-white/20`
       } ${className}`}
     >
@@ -57,7 +58,7 @@ export function PulseCardPreview({ card }: { card: PulseCard }) {
   const value = card.suit === "prism" ? card.prismRange ?? "?" : String(card.value ?? "?");
 
   return (
-    <div className={`relative h-[110px] w-[80px] rounded-xl bg-gradient-to-b ${meta.bg} p-4 shadow-xl ring-1 ring-white/15`}>
+    <div className={`relative h-[120px] w-[80px] rounded-xl bg-gradient-to-b ${meta.bg} p-4 shadow-xl ring-1 ring-white/15`}>
       <div className={`text-xs font-extrabold ${meta.accent}`}>{meta.label}</div>
       <div className="mt-2 text-xl font-extrabold tracking-tight text-white">{value}</div>
     </div>
@@ -67,7 +68,7 @@ export function PulseCardPreview({ card }: { card: PulseCard }) {
 export function TerrainCardView({ suit, min, max }: { suit: Exclude<PulseSuit, "prism">; min: number; max: number }) {
   const meta = suitMeta(suit);
   return (
-    <div className={`relative h-[110px] w-[80px] rounded-xl bg-gradient-to-b ${meta.bg} p-4 shadow-xl ring-1 ring-white/15`}>
+    <div className={`relative h-[120px] w-[80px] rounded-xl bg-gradient-to-b ${meta.bg} p-4 shadow-xl ring-1 ring-white/15`}>
       <div className="flex items-center justify-between">
         <div className={`text-xs font-extrabold ${meta.accent}`}>{meta.label}</div>
       </div>
@@ -87,21 +88,16 @@ export function DeckStub({
   count: number;
   onClick?: () => void;
 }) {
-  const cls =
-    "relative h-[110px] w-[80px] rounded-xl bg-gradient-to-b from-slate-700/40 to-slate-950 p-4 shadow-xl ring-1 ring-white/10";
   const inner = (
-    <>
-      <div className="text-[11px] font-semibold text-white/60">{label}</div>
-      <div className="mt-1 text-l font-extrabold text-white">{count}</div>
-      <div className="mt-1 text-xs text-white/60">cards</div>
+    <div className="absolute inset-0 p-4">
       {onClick && <div className="mt-2 text-[10px] font-semibold text-white/50">Click to peek</div>}
-    </>
+    </div>
   );
 
-  if (!onClick) return <div className={cls}>{inner}</div>;
+  if (!onClick) return <CardBack>{inner}</CardBack>;
   return (
-    <button type="button" onClick={onClick} className={`${cls} text-left transition hover:ring-white/20`}>
-      {inner}
+    <button type="button" onClick={onClick} className="group rounded-xl text-left transition">
+      <CardBack className="transition group-hover:ring-white/20">{inner}</CardBack>
     </button>
   );
 }

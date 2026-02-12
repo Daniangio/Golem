@@ -1,14 +1,12 @@
 import React from "react";
 import { PartChoiceCard } from "../../../components/game/PartChoiceCard";
-import { SphereLocationImages } from "../../../components/game/SphereLocationImages";
+import { LocationShowcase } from "../../../components/game/LocationShowcase";
 import type { LocationCard } from "../../../game/locations";
 import type { PlayerSlot } from "../../../types";
 import { seatLabel } from "../gameUtils";
 
 type ChoosePartsPhaseProps = {
   location: LocationCard;
-  sphere: number;
-  sphereImageUrl: string | null;
   locationImageUrl: string | null;
   selectedSeat: PlayerSlot;
   pickingSeat: PlayerSlot;
@@ -23,8 +21,6 @@ type ChoosePartsPhaseProps = {
 
 export function ChoosePartsPhase({
   location,
-  sphere,
-  sphereImageUrl,
   locationImageUrl,
   selectedSeat,
   pickingSeat,
@@ -37,15 +33,17 @@ export function ChoosePartsPhase({
   onConfirmParts,
 }: ChoosePartsPhaseProps) {
   return (
-    <div className="grid h-full min-h-0 grid-cols-[minmax(0,16%)_minmax(0,1fr)] gap-2">
-      <div className="min-h-0 p-1 max-w-[20vw]">
-        <SphereLocationImages
-          sphere={sphere}
-          sphereImageUrl={sphereImageUrl}
-          locationName={location.name}
-          locationImageUrl={locationImageUrl}
-          orientation="row"
-        />
+    <div className="grid h-full min-h-0 grid-cols-[minmax(240px,460px)_minmax(0,1fr)] gap-2">
+      <div className="min-h-0 overflow-visible rounded-2xl bg-white/5 p-2 ring-1 ring-white/10">
+        <div className="flex h-full min-h-0 items-start gap-2">
+          <LocationShowcase
+            locationName={location.name}
+            locationRule={location.rule}
+            locationImageUrl={locationImageUrl}
+            panelClassName="w-[250px]"
+            imageClassName="h-[250px] w-[172px] rounded-xl object-cover"
+          />
+        </div>
       </div>
 
       <div className="flex min-h-0 flex-col">
@@ -69,28 +67,26 @@ export function ChoosePartsPhase({
 
         <div className="mt-3 min-h-0 flex-1 overflow-visible pr-1">
           <div className="grid gap-3 lg:grid-cols-2">
-            {location.compulsory.map((part) => (
-              <PartChoiceCard
-                key={part.id}
-                part={part}
-                takenBy={picksByValue[part.id] ?? []}
-                onPick={() => {
-                  const currentPicked = picksByValue[part.id]?.includes(pickingSeat);
-                  onPickPart(currentPicked ? null : part.id);
-                }}
-              />
-            ))}
-            {location.optional.map((part) => (
-              <PartChoiceCard
-                key={part.id}
-                part={part}
-                takenBy={picksByValue[part.id] ?? []}
-                onPick={() => {
-                  const currentPicked = picksByValue[part.id]?.includes(pickingSeat);
-                  onPickPart(currentPicked ? null : part.id);
-                }}
-              />
-            ))}
+            {[...location.compulsory, ...location.optional].map((part) => {
+              const takenBy = picksByValue[part.id] ?? [];
+              const selectedBySelf = takenBy.includes(pickingSeat);
+              const takenByOthers = takenBy.some((seat) => seat !== pickingSeat);
+              const disabled = busy || !canActForSelected || takenByOthers;
+              return (
+                <PartChoiceCard
+                  key={part.id}
+                  part={part}
+                  takenBy={takenBy}
+                  selected={selectedBySelf}
+                  unavailable={takenByOthers}
+                  disabled={disabled}
+                  onPick={() => {
+                    if (disabled) return;
+                    onPickPart(selectedBySelf ? null : part.id);
+                  }}
+                />
+              );
+            })}
           </div>
         </div>
       </div>

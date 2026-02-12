@@ -1,8 +1,7 @@
-import React from "react";
+import React, { useEffect, useRef, useState } from "react";
 import { LocationChoiceCard } from "../../../components/game/LocationChoiceCard";
 import type { PlayerSlot } from "../../../types";
 import type { LocationCard } from "../../../game/locations";
-import { seatLabel } from "../gameUtils";
 
 type ChooseLocationPhaseProps = {
   sphere: number;
@@ -11,13 +10,11 @@ type ChooseLocationPhaseProps = {
   voteByValue: Record<string, PlayerSlot[]>;
   locationCarouselIndex: number;
   setLocationCarouselIndex: React.Dispatch<React.SetStateAction<number>>;
-  actingSeat: PlayerSlot | null;
-  isHost: boolean;
   busy: boolean;
-  canConfirmLocation: boolean;
+  voteLocked: boolean;
+  resolvingWinnerId: string | null;
+  onResolveAnimationDone: () => void;
   onVoteLocation: (locationId: string) => void;
-  onAutoVoteBots: () => void;
-  onConfirmLocation: () => void;
 };
 
 export function ChooseLocationPhase({
@@ -27,24 +24,56 @@ export function ChooseLocationPhase({
   voteByValue,
   locationCarouselIndex,
   setLocationCarouselIndex,
-  actingSeat,
-  isHost,
   busy,
-  canConfirmLocation,
+  voteLocked,
+  resolvingWinnerId,
+  onResolveAnimationDone,
   onVoteLocation,
-  onAutoVoteBots,
-  onConfirmLocation,
 }: ChooseLocationPhaseProps) {
+  const [resolveStage, setResolveStage] = useState<"idle" | "focus" | "fade_others" | "winner_out">("idle");
+  const resolveTimersRef = useRef<number[]>([]);
+  const onResolveDoneRef = useRef(onResolveAnimationDone);
+
+  useEffect(() => {
+    onResolveDoneRef.current = onResolveAnimationDone;
+  }, [onResolveAnimationDone]);
+
+  useEffect(() => {
+    return () => {
+      for (const timer of resolveTimersRef.current) window.clearTimeout(timer);
+      resolveTimersRef.current = [];
+    };
+  }, []);
+
+  useEffect(() => {
+    for (const timer of resolveTimersRef.current) window.clearTimeout(timer);
+    resolveTimersRef.current = [];
+
+    if (!resolvingWinnerId) {
+      setResolveStage("idle");
+      return;
+    }
+
+    const winnerIndex = locationOptions.findIndex((l) => l.id === resolvingWinnerId);
+    if (winnerIndex >= 0) setLocationCarouselIndex(winnerIndex);
+    setResolveStage("focus");
+    resolveTimersRef.current.push(window.setTimeout(() => setResolveStage("fade_others"), 380));
+    resolveTimersRef.current.push(window.setTimeout(() => setResolveStage("winner_out"), 980));
+    resolveTimersRef.current.push(window.setTimeout(() => onResolveDoneRef.current(), 1700));
+  }, [locationOptions, resolvingWinnerId, setLocationCarouselIndex]);
+
+  const resolving = Boolean(resolvingWinnerId);
+
   return (
     <div className="flex h-full min-h-0 flex-col">
       <div className="mt-1 min-h-0 flex-1 overflow-visible pr-1">
         <div className="grid min-h-0 grid-cols-[minmax(0,32%)_minmax(0,1fr)] gap-4">
           {sphereImageUrl ? (
-            <img src={sphereImageUrl} alt={`Sphere ${sphere}`} className="h-[360px] w-full object-contain sm:h-[420px]" draggable={false} />
+            <img src={sphereImageUrl} alt={`Sphere ${sphere}`} className="h-[320px] w-full object-contain sm:h-[380px]" draggable={false} />
           ) : (
-            <div className="flex h-[360px] items-center justify-center text-xs text-white/60 sm:h-[420px]">Sphere art missing</div>
+            <div className="flex h-[320px] items-center justify-center text-xs text-white/60 sm:h-[380px]">Sphere art missing</div>
           )}
-          <div className="relative min-h-[360px] [perspective:1200px] sm:min-h-[420px]">
+          <div className="relative min-h-[240px] [perspective:1200px] sm:min-h-[240px]">
             <button
               type="button"
               onClick={() =>
@@ -54,6 +83,7 @@ export function ChooseLocationPhase({
                   return (idx - 1 + count) % count;
                 })
               }
+              disabled={resolving}
               className="absolute left-1 top-1/2 z-30 -translate-y-1/2 rounded-full bg-white/10 px-3 py-2 text-sm font-extrabold text-white ring-1 ring-white/10 hover:bg-white/15"
               aria-label="Previous location"
               title="Previous"
@@ -69,6 +99,7 @@ export function ChooseLocationPhase({
                   return (idx + 1) % count;
                 })
               }
+              disabled={resolving}
               className="absolute right-1 top-1/2 z-30 -translate-y-1/2 rounded-full bg-white/10 px-3 py-2 text-sm font-extrabold text-white ring-1 ring-white/10 hover:bg-white/15"
               aria-label="Next location"
               title="Next"
@@ -85,31 +116,41 @@ export function ChooseLocationPhase({
               if (diff < -half) diff += count;
 
               const show = Math.abs(diff) <= 1 || count <= 3;
-              const x = diff * 220;
+              const x = diff * 195;
               const rotation = diff * -28;
               const scale = diff === 0 ? 1 : 0.88;
               const opacity = diff === 0 ? 1 : 0.35;
+              const isWinner = resolvingWinnerId === location.id;
+              const shouldHideOther = resolving && resolveStage !== "focus" && !isWinner;
+              const winnerPulse = isWinner && resolveStage === "focus";
+              const winnerOut = isWinner && resolveStage === "winner_out";
 
               return (
                 <div
                   key={location.id}
                   className="absolute left-1/2 top-1/2 origin-center transition-[transform,opacity] duration-500 ease-out"
                   style={{
-                    transform: `translate(-50%, -50%) translateX(${x}px) scale(${scale}) rotateY(${rotation}deg)`,
-                    opacity: show ? opacity : 0,
-                    zIndex: diff === 0 ? 20 : 10 - Math.abs(diff),
+                    transform: shouldHideOther
+                      ? `translate(-50%, -50%) translateX(${x * 0.55}px) scale(0.6) rotateY(${rotation}deg)`
+                      : `translate(-50%, -50%) translateX(${x}px) scale(${isWinner && resolveStage !== "idle" ? 1 : scale}) rotateY(${rotation}deg)`,
+                    opacity: shouldHideOther ? 0 : show ? opacity : 0,
+                    zIndex: isWinner ? 30 : diff === 0 ? 20 : 10 - Math.abs(diff),
                     pointerEvents: show ? "auto" : "none",
                   }}
                   onMouseDownCapture={() => {
+                    if (resolving) return;
                     if (diff !== 0) setLocationCarouselIndex(idx);
                   }}
                 >
-                  <LocationChoiceCard
-                    sphere={sphere}
-                    location={location}
-                    votes={voteByValue[location.id] ?? []}
-                    onVote={() => onVoteLocation(location.id)}
-                  />
+                  <div className={winnerPulse ? "location-winner-pulse" : winnerOut ? "location-winner-out" : ""}>
+                    <LocationChoiceCard
+                      sphere={sphere}
+                      location={location}
+                      votes={voteByValue[location.id] ?? []}
+                      onVote={() => onVoteLocation(location.id)}
+                      voteDisabled={busy || voteLocked || resolving}
+                    />
+                  </div>
                 </div>
               );
             })}
@@ -125,6 +166,7 @@ export function ChooseLocationPhase({
                       key={idx}
                       type="button"
                       onClick={() => setLocationCarouselIndex(idx)}
+                      disabled={resolving}
                       className={`h-2 w-2 rounded-full ring-1 ring-white/20 transition ${
                         active ? "bg-white/80" : "bg-white/20 hover:bg-white/35"
                       }`}
@@ -136,29 +178,6 @@ export function ChooseLocationPhase({
             )}
           </div>
         </div>
-      </div>
-      <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
-        <div className="text-[11px] font-semibold text-white/70">
-          Voting as: <span className="font-extrabold text-white">{actingSeat ? seatLabel(actingSeat) : "—"}</span>
-        </div>
-        {isHost && (
-          <button
-            onClick={onAutoVoteBots}
-            disabled={busy}
-            className="rounded-2xl bg-white/10 px-4 py-2 text-sm font-semibold text-white/85 ring-1 ring-white/10 hover:bg-white/15 disabled:opacity-40"
-          >
-            Auto-vote bots
-          </button>
-        )}
-        {isHost && (
-          <button
-            onClick={onConfirmLocation}
-            disabled={busy || !canConfirmLocation}
-            className="rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-extrabold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-40"
-          >
-            Confirm location
-          </button>
-        )}
       </div>
     </div>
   );

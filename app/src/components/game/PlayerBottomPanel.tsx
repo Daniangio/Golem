@@ -1,5 +1,6 @@
 import React from "react";
 import { PulseCardMini } from "./PulseCards";
+import { CardBack } from "./CardBack";
 import type { PlayerSlot, PulseCard } from "../../types";
 
 export function PlayerBottomPanel({
@@ -87,10 +88,7 @@ export function PlayerBottomPanel({
               })
             ) : (
               Array.from({ length: Math.max(0, hand.length) }).map((_, i) => (
-                <div
-                  key={i}
-                  className="h-[110px] w-[80px] shrink-0 rounded-2xl bg-gradient-to-b from-slate-700/40 to-slate-950 shadow-xl ring-1 ring-white/10"
-                />
+                <CardBack key={i} className="h-[120px] w-[80px] shrink-0 rounded-2xl" />
               ))
             )}
           </div>
