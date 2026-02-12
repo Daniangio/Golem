@@ -29,63 +29,24 @@ import {
 import { useAuthUser } from "../lib/useAuth";
 import { getLocationById, getLocationsForStage, getPartById, type LocationCard } from "../game/locations";
 import { DeckStub, PulseCardMini, PulseCardPreview, TerrainCardView } from "../components/game/PulseCards";
-import { LocationChoiceCard } from "../components/game/LocationChoiceCard";
-import { PartChoiceCard } from "../components/game/PartChoiceCard";
 import { SphereLocationImages } from "../components/game/SphereLocationImages";
 import { CommunionExchangePanel, PlayerBottomPanel } from "../components/game/PlayerBottomPanel";
+import { DiscardModal, OutcomeHistoryModal, TerrainDeckModal } from "../components/game/GameModals";
 import type { PlayerSlot, Players } from "../types";
-
-const SLOTS: PlayerSlot[] = ["p1", "p2", "p3"];
-
-function isBotUid(uid: string | undefined | null): boolean {
-  return Boolean(uid && uid.startsWith("bot:"));
-}
-
-function seatLabel(seat: PlayerSlot): string {
-  return seat.toUpperCase();
-}
-
-function displayNameForUser(user: { displayName?: string | null; email?: string | null } | null): string {
-  const dn = user?.displayName?.trim();
-  if (dn) return dn.slice(0, 20);
-  const email = user?.email?.trim();
-  if (email) return email.split("@")[0]?.slice(0, 20) || "Player";
-  return "Player";
-}
-
-function playerLabel(uid: string, playerNames: Record<string, string> | undefined): string {
-  return playerNames?.[uid] ?? (uid.startsWith("bot:") ? "Bot" : "Player");
-}
-
-function imgSrc(path: string | undefined | null): string | null {
-  if (!path) return null;
-  return encodeURI(path);
-}
-
-function seatOrder(mySeat: PlayerSlot): PlayerSlot[] {
-  if (mySeat === "p1") return ["p1", "p2", "p3"];
-  if (mySeat === "p2") return ["p2", "p3", "p1"];
-  return ["p3", "p1", "p2"];
-}
-
-function groupSeatsByValue(values: Partial<Record<PlayerSlot, string>> | undefined): Record<string, PlayerSlot[]> {
-  const out: Record<string, PlayerSlot[]> = {};
-  if (!values) return out;
-  for (const seat of SLOTS) {
-    const v = values[seat];
-    if (!v) continue;
-    out[v] = out[v] ?? [];
-    out[v]!.push(seat);
-  }
-  return out;
-}
-
-function canControlSeat(game: GameSummary, actorUid: string, seat: PlayerSlot): boolean {
-  const u = game.players?.[seat];
-  if (!u) return false;
-  if (u === actorUid) return true;
-  return Boolean(game.createdBy === actorUid && isBotUid(u));
-}
+import { GameLobbyView } from "./game/GameLobbyView";
+import { ChooseLocationPhase } from "./game/phases/ChooseLocationPhase";
+import { ChoosePartsPhase } from "./game/phases/ChoosePartsPhase";
+import {
+  SLOTS,
+  canControlSeat,
+  displayNameForUser,
+  groupSeatsByValue,
+  imgSrc,
+  isBotUid,
+  playerLabel,
+  seatLabel,
+  seatOrder,
+} from "./game/gameUtils";
 
 export default function Game() {
   const nav = useNavigate();
@@ -327,186 +288,31 @@ export default function Game() {
   if (game === undefined) return <div className="text-sm text-slate-600">Loading…</div>;
   if (game === null) return <div className="text-sm text-slate-600">Game not found.</div>;
 
-  const shareUrl = `${window.location.origin}/game/${gameId}`;
-
   if (game.status === "lobby") {
     return (
-      <div className="h-full overflow-visible">
-        <div className="grid gap-6">
-        <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
-            <div>
-              <div className="text-sm font-semibold text-slate-700">Room</div>
-              <div className="mt-1 font-mono text-xs text-slate-600">{gameId}</div>
-            </div>
-            <div className="flex flex-wrap items-center gap-2">
-              <button
-                onClick={() => nav("/")}
-                className="rounded-full bg-slate-900/10 px-3 py-1 text-xs font-semibold text-slate-700"
-              >
-                Lobby
-              </button>
-              <button
-                onClick={() => nav("/me")}
-                className="rounded-full bg-slate-900/10 px-3 py-1 text-xs font-semibold text-slate-700"
-              >
-                Profile
-              </button>
-            </div>
-          </div>
-
-          <div className="mt-4 rounded-xl bg-slate-50 p-3 text-sm text-slate-700">
-            <div className="font-semibold">Share link</div>
-            <div className="mt-1 break-all font-mono text-xs">{shareUrl}</div>
-          </div>
-
-          <div className="mt-4 grid gap-3 sm:grid-cols-2">
-            <div className="rounded-xl bg-slate-50 p-3">
-              <div className="text-xs text-slate-500">Signed in as</div>
-              <div className="mt-1 text-sm font-extrabold text-slate-900">{displayName}</div>
-              <div className="mt-2 text-xs text-slate-500">
-                Change your display name in{" "}
-                <button onClick={() => nav("/me")} className="font-semibold underline">
-                  Profile
-                </button>
-                .
-              </div>
-            </div>
-            <div className="rounded-xl bg-slate-50 p-3">
-              <div className="text-xs text-slate-500">Visibility</div>
-              <div className="mt-1 text-sm font-semibold text-slate-900">{game.visibility}</div>
-              <div className="mt-2 text-xs text-slate-500">Status</div>
-              <div className="mt-1 text-sm font-semibold text-slate-900">{game.status}</div>
-            </div>
-          </div>
-        </div>
-
-        <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-          <div className="text-sm font-semibold text-slate-700">Players ({playerCount(players)}/3)</div>
-          <div className="mt-3 grid gap-2">
-            {SLOTS.map((slot) => {
-              const u = players[slot];
-              const bot = isBotUid(u);
-              return (
-                <div
-                  key={slot}
-                  className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="rounded-full bg-slate-900/10 px-2 py-0.5 text-xs font-semibold text-slate-700">
-                      {seatLabel(slot)}
-                    </span>
-                    {u ? (
-                      <span className="font-semibold text-slate-900">{playerLabel(u, game.playerNames)}</span>
-                    ) : (
-                      <span className="text-slate-500">Empty</span>
-                    )}
-                    {u && bot && <span className="text-xs text-slate-500">(bot)</span>}
-                    {u && uid && u === uid && (
-                      <span className="text-xs font-semibold text-emerald-700">you</span>
-                    )}
-                  </div>
-                  {isHost && u && bot && (
-                    <button
-                      onClick={() => onRemoveBot(u)}
-                      disabled={busy}
-                      className="rounded-full bg-rose-600/10 px-3 py-1 text-xs font-semibold text-rose-700 disabled:opacity-40"
-                    >
-                      Remove bot
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-          </div>
-
-          <div className="mt-4 flex flex-wrap gap-2">
-            {!isPlayer && (
-              <button
-                onClick={onJoin}
-                disabled={!uid || busy}
-                className="rounded-xl bg-slate-900 px-4 py-2 font-semibold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                Join room
-              </button>
-            )}
-
-            {isPlayer && (
-              <button
-                onClick={onLeave}
-                disabled={!uid || busy}
-                className="rounded-xl bg-rose-600 px-4 py-2 font-semibold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-40"
-              >
-                {isHost ? "Delete room" : "Leave room"}
-              </button>
-            )}
-
-            {isHost && (
-              <>
-                <button
-                  onClick={onAddBot}
-                  disabled={!uid || busy || full}
-                  className="rounded-xl bg-slate-900/10 px-4 py-2 font-semibold text-slate-800 shadow-sm disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  Add bot
-                </button>
-                <button
-                  onClick={onStart}
-                  disabled={!uid || busy || !full}
-                  className="rounded-xl bg-emerald-600 px-4 py-2 font-semibold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  Start game
-                </button>
-              </>
-            )}
-          </div>
-
-          {msg && <div className="mt-3 text-sm text-slate-700">{msg}</div>}
-
-          {isHost && game.visibility === "private" && (
-            <div className="mt-5 rounded-xl border border-slate-200 bg-white p-4">
-              <div className="text-sm font-semibold text-slate-700">Invites (private room)</div>
-              <div className="mt-2 text-sm text-slate-600">
-                Invite by UID (players can find their UID on the Profile page).
-              </div>
-
-              <div className="mt-3 flex flex-col gap-2 sm:flex-row">
-                <input
-                  value={inviteUid}
-                  onChange={(e) => setInviteUid(e.target.value)}
-                  placeholder="Paste UID…"
-                  className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-900 shadow-sm outline-none focus:border-slate-400"
-                />
-                <button
-                  onClick={onInvite}
-                  disabled={busy || !inviteUid.trim()}
-                  className="rounded-xl bg-slate-900 px-4 py-2 font-semibold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-40"
-                >
-                  Invite
-                </button>
-              </div>
-
-              {(game.invitedUids ?? []).length > 0 && (
-                <div className="mt-4 grid gap-2">
-                  {(game.invitedUids ?? []).map((u) => (
-                    <div key={u} className="flex items-center justify-between rounded-xl bg-slate-50 px-3 py-2 text-sm">
-                      <div className="break-all font-mono text-xs text-slate-700">{u}</div>
-                      <button
-                        onClick={() => onRevoke(u)}
-                        disabled={busy}
-                        className="rounded-full bg-rose-600/10 px-3 py-1 text-xs font-semibold text-rose-700 disabled:opacity-40"
-                      >
-                        Revoke
-                      </button>
-                    </div>
-                  ))}
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-        </div>
-      </div>
+      <GameLobbyView
+        game={game}
+        gameId={gameId}
+        players={players}
+        uid={uid}
+        displayName={displayName}
+        isHost={isHost}
+        isPlayer={isPlayer}
+        busy={busy}
+        full={full}
+        msg={msg}
+        inviteUid={inviteUid}
+        onInviteUidChange={setInviteUid}
+        onOpenLobby={() => nav("/")}
+        onOpenProfile={() => nav("/me")}
+        onJoin={() => void onJoin()}
+        onLeave={() => void onLeave()}
+        onAddBot={() => void onAddBot()}
+        onStart={() => void onStart()}
+        onInvite={() => void onInvite()}
+        onRevoke={(targetUid) => void onRevoke(targetUid)}
+        onRemoveBot={(botUid) => void onRemoveBot(botUid)}
+      />
     );
   }
 
@@ -820,197 +626,39 @@ export default function Game() {
 
             <div className="min-h-0">
                 {game.phase === "choose_location" && (
-                  <div className="flex h-full min-h-0 flex-col">
-                    <div className="mt-1 min-h-0 flex-1 overflow-visible pr-1">
-                      <div className="grid min-h-0 grid-cols-[minmax(0,32%)_minmax(0,1fr)] gap-4">
-                            {sphereImageUrl ? (
-                              <img
-                                src={sphereImageUrl}
-                                alt={`Sphere ${sphere}`}
-                                className="h-[360px] w-full object-contain sm:h-[420px]"
-                                draggable={false}
-                              />
-                            ) : (
-                              <div className="flex h-[360px] items-center justify-center text-xs text-white/60 sm:h-[420px]">
-                                Sphere art missing
-                              </div>
-                            )}
-                        <div className="relative min-h-[360px] [perspective:1200px] sm:min-h-[420px]">
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setLocationCarouselIndex((i) => {
-                                const n = locationOptions.length;
-                                if (!n) return 0;
-                                return (i - 1 + n) % n;
-                              })
-                            }
-                            className="absolute left-1 top-1/2 z-30 -translate-y-1/2 rounded-full bg-white/10 px-3 py-2 text-sm font-extrabold text-white ring-1 ring-white/10 hover:bg-white/15"
-                            aria-label="Previous location"
-                            title="Previous"
-                          >
-                            ‹
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() =>
-                              setLocationCarouselIndex((i) => {
-                                const n = locationOptions.length;
-                                if (!n) return 0;
-                                return (i + 1) % n;
-                              })
-                            }
-                            className="absolute right-1 top-1/2 z-30 -translate-y-1/2 rounded-full bg-white/10 px-3 py-2 text-sm font-extrabold text-white ring-1 ring-white/10 hover:bg-white/15"
-                            aria-label="Next location"
-                            title="Next"
-                          >
-                            ›
-                          </button>
-
-                          {locationOptions.map((loc, idx) => {
-                            const n = locationOptions.length;
-                            const current = n ? ((locationCarouselIndex % n) + n) % n : 0;
-                            const half = Math.floor(n / 2);
-                            let diff = idx - current;
-                            if (diff > half) diff -= n;
-                            if (diff < -half) diff += n;
-
-                            const show = Math.abs(diff) <= 1 || n <= 3;
-                            const x = diff * 220;
-                            const rot = diff * -28;
-                            const scale = diff === 0 ? 1 : 0.88;
-                            const opacity = diff === 0 ? 1 : 0.35;
-
-                            return (
-                              <div
-                                key={loc.id}
-                                className="absolute left-1/2 top-1/2 origin-center transition-[transform,opacity] duration-500 ease-out"
-                                style={{
-                                  transform: `translate(-50%, -50%) translateX(${x}px) scale(${scale}) rotateY(${rot}deg)`,
-                                  opacity: show ? opacity : 0,
-                                  zIndex: diff === 0 ? 20 : 10 - Math.abs(diff),
-                                  pointerEvents: show ? "auto" : "none",
-                                }}
-                                onMouseDownCapture={() => {
-                                  if (diff !== 0) setLocationCarouselIndex(idx);
-                                }}
-                              >
-                                <LocationChoiceCard
-                                  sphere={sphere}
-                                  location={loc}
-                                  votes={voteByValue[loc.id] ?? []}
-                                  onVote={() => void onVoteLocation(loc.id)}
-                                />
-                              </div>
-                            );
-                          })}
-
-                          {locationOptions.length > 1 && (
-                            <div className="absolute bottom-2 left-1/2 z-30 flex -translate-x-1/2 items-center gap-1">
-                              {locationOptions.map((_, idx) => {
-                                const n = locationOptions.length;
-                                const current = n ? ((locationCarouselIndex % n) + n) % n : 0;
-                                const active = idx === current;
-                                return (
-                                  <button
-                                    key={idx}
-                                    type="button"
-                                    onClick={() => setLocationCarouselIndex(idx)}
-                                    className={`h-2 w-2 rounded-full ring-1 ring-white/20 transition ${
-                                      active ? "bg-white/80" : "bg-white/20 hover:bg-white/35"
-                                    }`}
-                                    aria-label={`Select location ${idx + 1}`}
-                                  />
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                    <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
-                      {isHost && (
-                        <button
-                          onClick={onAutoVoteBots}
-                          disabled={busy}
-                          className="rounded-2xl bg-white/10 px-4 py-2 text-sm font-semibold text-white/85 ring-1 ring-white/10 hover:bg-white/15 disabled:opacity-40"
-                        >
-                          Auto-vote bots
-                        </button>
-                      )}
-                      {isHost && (
-                        <button
-                          onClick={onConfirmLocation}
-                          disabled={busy || !canConfirmLocation}
-                          className="rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-extrabold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-40"
-                        >
-                          Confirm location
-                        </button>
-                      )}
-                    </div>
-                  </div>
+                  <ChooseLocationPhase
+                    sphere={sphere}
+                    sphereImageUrl={sphereImageUrl}
+                    locationOptions={locationOptions}
+                    voteByValue={voteByValue}
+                    locationCarouselIndex={locationCarouselIndex}
+                    setLocationCarouselIndex={setLocationCarouselIndex}
+                    actingSeat={actingSeat}
+                    isHost={isHost}
+                    busy={busy}
+                    canConfirmLocation={canConfirmLocation}
+                    onVoteLocation={(locationId) => void onVoteLocation(locationId)}
+                    onAutoVoteBots={() => void onAutoVoteBots()}
+                    onConfirmLocation={() => void onConfirmLocation()}
+                  />
                 )}
 
                 {game.phase === "choose_parts" && location && (
-                  <div className="grid h-full min-h-0 grid-cols-[minmax(0,16%)_minmax(0,1fr)] gap-2">
-                    <div className="min-h-0 p-1 max-w-[20vw]">
-                      <SphereLocationImages
-                        sphere={sphere}
-                        sphereImageUrl={sphereImageUrl}
-                        locationName={location.name}
-                        locationImageUrl={locationImageUrl}
-                        orientation="row"
-                      />
-                    </div>
-
-                    <div className="flex min-h-0 flex-col">
-                      <div className="flex flex-wrap items-end justify-between gap-2">
-                        <div>
-                          <div className="text-sm font-extrabold text-white">Assign faculties</div>
-                          <div className="mt-1 text-xs text-white/65">
-                            Selected seat: <span className="font-extrabold text-white">{seatLabel(selectedSeat)}</span>{" "}
-                            {canActForSelected ? "" : "(view-only)"}
-                          </div>
-                        </div>
-                        {isHost && (
-                          <button
-                            onClick={onConfirmParts}
-                            disabled={busy || !canConfirmParts}
-                            className="rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-extrabold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-40"
-                          >
-                            Confirm faculties
-                          </button>
-                        )}
-                      </div>
-
-                      <div className="mt-3 min-h-0 flex-1 overflow-visible pr-1">
-                        <div className="grid gap-3 lg:grid-cols-2">
-                          {location.compulsory.map((p) => (
-                            <PartChoiceCard
-                              key={p.id}
-                              part={p}
-                              takenBy={picksByValue[p.id] ?? []}
-                              onPick={() => {
-                                const current = game.partPicks?.[actingSeat ?? selectedSeat] ?? null;
-                                void onPickPart(current === p.id ? null : p.id);
-                              }}
-                            />
-                          ))}
-                          {location.optional.map((p) => (
-                            <PartChoiceCard
-                              key={p.id}
-                              part={p}
-                              takenBy={picksByValue[p.id] ?? []}
-                              onPick={() => {
-                                const current = game.partPicks?.[actingSeat ?? selectedSeat] ?? null;
-                                void onPickPart(current === p.id ? null : p.id);
-                              }}
-                            />
-                          ))}
-                        </div>
-                      </div>
-                    </div>
-                  </div>
+                  <ChoosePartsPhase
+                    location={location}
+                    sphere={sphere}
+                    sphereImageUrl={sphereImageUrl}
+                    locationImageUrl={locationImageUrl}
+                    selectedSeat={selectedSeat}
+                    pickingSeat={actingSeat ?? selectedSeat}
+                    canActForSelected={canActForSelected}
+                    picksByValue={picksByValue}
+                    isHost={isHost}
+                    busy={busy}
+                    canConfirmParts={canConfirmParts}
+                    onPickPart={(partId) => void onPickPart(partId)}
+                    onConfirmParts={() => void onConfirmParts()}
+                  />
                 )}
 
                 {game.phase === "play" && (
@@ -1431,147 +1079,25 @@ export default function Game() {
         />
       </div>
 
-      {showDiscardModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onMouseDown={() => setShowDiscardModal(false)}>
-          <div
-            className="w-full max-w-4xl rounded-3xl bg-slate-950 p-5 text-white shadow-2xl ring-1 ring-white/10"
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-sm font-extrabold">Discard pile</div>
-                <div className="mt-1 text-xs text-white/60">{discardAll.length} cards</div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowDiscardModal(false)}
-                className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white/80 hover:bg-white/15"
-              >
-                Close
-              </button>
-            </div>
+      <DiscardModal
+        open={showDiscardModal}
+        onClose={() => setShowDiscardModal(false)}
+        discardAll={discardAll}
+        lastDiscarded={lastDiscarded}
+      />
 
-            {lastDiscarded.length ? (
-              <div className="mt-4">
-                <div className="text-xs font-semibold text-white/60">Last discarded</div>
-                <div className="mt-2 flex flex-wrap gap-2">
-                  {lastDiscarded.map((c) => (
-                    <PulseCardMini key={`last:${c.id}`} card={c} selected={false} lift="none" onClick={() => {}} />
-                  ))}
-                </div>
-              </div>
-            ) : null}
+      <TerrainDeckModal
+        open={showTerrainModal}
+        onClose={() => setShowTerrainModal(false)}
+        terrainDeck={terrainDeck}
+        terrainIndex={terrainIndex}
+      />
 
-            <div className="mt-5">
-              <div className="text-xs font-semibold text-white/60">All discarded</div>
-              <div className="mt-2 max-h-[60vh] overflow-visible rounded-2xl bg-white/5 p-3 ring-1 ring-white/10">
-                <div className="flex flex-wrap gap-2">
-                  {[...discardAll].reverse().map((c, idx) => (
-                    <PulseCardMini
-                      key={`${c.id}:${idx}`}
-                      card={c}
-                      selected={false}
-                      lift="none"
-                      className="scale-[0.9]"
-                      onClick={() => {}}
-                    />
-                  ))}
-                </div>
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showTerrainModal && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
-          onMouseDown={() => setShowTerrainModal(false)}
-        >
-          <div
-            className="w-full max-w-3xl rounded-3xl bg-slate-950 p-5 text-white shadow-2xl ring-1 ring-white/10"
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-sm font-extrabold">Terrain deck</div>
-                <div className="mt-1 text-xs text-white/60">{terrainDeck.length} cards (ordered)</div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowTerrainModal(false)}
-                className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white/80 hover:bg-white/15"
-              >
-                Close
-              </button>
-            </div>
-
-            <div className="mt-4 rounded-2xl bg-white/5 p-3 ring-1 ring-white/10">
-              {terrainDeck.length ? (
-                <div className="flex flex-wrap gap-3">
-                  {terrainDeck.map((t, idx) => (
-                    <div key={t.id} className="flex flex-col items-center gap-2">
-                      <div
-                        className={`text-[11px] font-semibold ${
-                          idx === terrainIndex ? "text-emerald-200" : "text-white/55"
-                        }`}
-                      >
-                        Step {idx + 1}
-                        {idx === terrainIndex ? " • current" : ""}
-                      </div>
-                      <TerrainCardView suit={t.suit} min={t.min} max={t.max} />
-                    </div>
-                  ))}
-                </div>
-              ) : (
-                <div className="text-sm text-white/60">No terrain deck.</div>
-              )}
-            </div>
-          </div>
-        </div>
-      )}
-
-      {showLogModal && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4" onMouseDown={() => setShowLogModal(false)}>
-          <div
-            className="w-full max-w-3xl rounded-3xl bg-slate-950 p-5 text-white shadow-2xl ring-1 ring-white/10"
-            onMouseDown={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-start justify-between gap-3">
-              <div>
-                <div className="text-sm font-extrabold">Pulse history</div>
-                <div className="mt-1 text-xs text-white/60">{outcomeLog.length} entries</div>
-              </div>
-              <button
-                type="button"
-                onClick={() => setShowLogModal(false)}
-                className="rounded-full bg-white/10 px-3 py-1 text-xs font-semibold text-white/80 hover:bg-white/15"
-              >
-                Close
-              </button>
-            </div>
-
-            <div className="mt-4 max-h-[70vh] overflow-visible rounded-2xl bg-white/5 p-3 ring-1 ring-white/10">
-              <div className="space-y-2">
-                {[...outcomeLog].reverse().map((e, idx) => (
-                  <div key={`${e.chapter}:${e.step}:${idx}`} className="rounded-2xl bg-white/5 p-3 ring-1 ring-white/10">
-                    <div className="flex flex-wrap items-center justify-between gap-2">
-                      <div className="text-xs font-extrabold text-white">{e.result.toUpperCase()}</div>
-                      <div className="text-[11px] font-semibold text-white/50">
-                        Sphere {e.chapter} • Step {e.step} • {e.terrainSuit.toUpperCase()}
-                      </div>
-                    </div>
-                    <div className="mt-1 text-sm text-white/70">
-                      total <span className="font-extrabold text-white">{e.total}</span> • target {e.min}–{e.max}
-                    </div>
-                  </div>
-                ))}
-                {!outcomeLog.length && <div className="text-sm text-white/60">No entries yet.</div>}
-              </div>
-            </div>
-          </div>
-        </div>
-      )}
+      <OutcomeHistoryModal
+        open={showLogModal}
+        onClose={() => setShowLogModal(false)}
+        outcomeLog={outcomeLog}
+      />
 
       {/* Communion exchange now lives in the bottom hand panel (non-blocking). */}
     </div>
