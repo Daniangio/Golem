@@ -112,6 +112,11 @@ function pickEmptySlot(players: Players): PlayerSlot | null {
   return null;
 }
 
+function playerUidsFromPlayers(players: Players): string[] {
+  const values = SLOTS.map((s) => players[s]).filter(Boolean) as string[];
+  return Array.from(new Set(values));
+}
+
 function isBotUid(uid: string): boolean {
   return uid.startsWith("bot:");
 }
@@ -219,11 +224,10 @@ export async function joinGame(gameId: string, uid: string, name: string) {
     const already = getMySlot(players, uid);
     if (already) {
       playerNames[uid] = normalizeName(name);
-      const nextUids = new Set(data.playerUids ?? []);
-      nextUids.add(uid);
+      const nextUids = playerUidsFromPlayers(players);
       tx.update(gameRef, {
         playerNames,
-        playerUids: Array.from(nextUids),
+        playerUids: nextUids,
         invitedUids,
         updatedAt: serverTimestamp(),
       });
@@ -235,14 +239,12 @@ export async function joinGame(gameId: string, uid: string, name: string) {
 
     players[slot] = uid;
     playerNames[uid] = normalizeName(name);
-
-    const nextUids = new Set(data.playerUids ?? []);
-    nextUids.add(uid);
+    const nextUids = playerUidsFromPlayers(players);
 
     tx.update(gameRef, {
       players,
       playerNames,
-      playerUids: Array.from(nextUids),
+      playerUids: nextUids,
       invitedUids,
       updatedAt: serverTimestamp(),
     });
@@ -268,13 +270,11 @@ export async function leaveGame(gameId: string, uid: string) {
     const mySlot = getMySlot(players, uid);
     if (!mySlot) return;
     delete players[mySlot];
-
-    const nextUids = new Set(data.playerUids ?? []);
-    nextUids.delete(uid);
+    const nextUids = playerUidsFromPlayers(players);
 
     tx.update(gameRef, {
       players,
-      playerUids: Array.from(nextUids),
+      playerUids: nextUids,
       updatedAt: serverTimestamp(),
     });
   });
@@ -300,7 +300,12 @@ export async function addBot(gameId: string, hostUid: string) {
     playerNames[botUid] = nextBotName(players, playerNames);
     players[slot] = botUid;
 
-    tx.update(gameRef, { players, playerNames, updatedAt: serverTimestamp() });
+    tx.update(gameRef, {
+      players,
+      playerNames,
+      playerUids: playerUidsFromPlayers(players),
+      updatedAt: serverTimestamp(),
+    });
   });
 }
 
@@ -320,7 +325,11 @@ export async function removeBot(gameId: string, hostUid: string, botUid: string)
     if (!slot) return;
 
     delete players[slot];
-    tx.update(gameRef, { players, updatedAt: serverTimestamp() });
+    tx.update(gameRef, {
+      players,
+      playerUids: playerUidsFromPlayers(players),
+      updatedAt: serverTimestamp(),
+    });
   });
 }
 

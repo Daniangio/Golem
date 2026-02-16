@@ -7,7 +7,9 @@ service cloud.firestore {
     }
 
     function isPlayer(data) {
-      return isSignedIn() && (
+      return isSignedIn() &&
+        data.keys().hasAny(["players"]) &&
+        (data.players is map) && (
         request.auth.uid == data.players.p1 ||
         request.auth.uid == data.players.p2 ||
         request.auth.uid == data.players.p3
@@ -33,53 +35,33 @@ service cloud.firestore {
       );
     }
 
-    function mySeatCount(players) {
-      return (players.p1 == request.auth.uid ? 1 : 0) +
-        (players.p2 == request.auth.uid ? 1 : 0) +
-        (players.p3 == request.auth.uid ? 1 : 0);
-    }
-
-    function joinOnlyAddsSelf(oldPlayers, newPlayers) {
-      return (
-        (
-          ((oldPlayers.p1 == null) && (newPlayers.p1 == null || newPlayers.p1 == request.auth.uid)) ||
-          ((oldPlayers.p1 != null) && (newPlayers.p1 == oldPlayers.p1))
-        ) &&
-        (
-          ((oldPlayers.p2 == null) && (newPlayers.p2 == null || newPlayers.p2 == request.auth.uid)) ||
-          ((oldPlayers.p2 != null) && (newPlayers.p2 == oldPlayers.p2))
-        ) &&
-        (
-          ((oldPlayers.p3 == null) && (newPlayers.p3 == null || newPlayers.p3 == request.auth.uid)) ||
-          ((oldPlayers.p3 != null) && (newPlayers.p3 == oldPlayers.p3))
-        )
-      );
-    }
-
-    function joinChangesOnlyAllowedFields() {
-      // For non-players joining a lobby: restrict top-level changed keys.
-      return request.resource.data.diff(resource.data).changedKeys().hasOnly([
-        "players",
-        "playerNames",
-        "playerUids",
-        "invitedUids",
-        "updatedAt"
-      ]);
-    }
-
     function isJoiningLobby() {
       return (
         resource.data.status == "lobby" &&
         request.resource.data.status == "lobby" &&
         !isPlayer(resource.data) &&
         isPlayer(request.resource.data) &&
-        (isPublicOrMissing(resource.data) || isInvited(resource.data)) &&
-        mySeatCount(request.resource.data.players) == 1 &&
-        joinOnlyAddsSelf(resource.data.players, request.resource.data.players) &&
-        request.auth.uid in request.resource.data.playerUids &&
-        request.resource.data.playerUids.size() <= 3 &&
-        joinChangesOnlyAllowedFields()
+        (isPublicOrMissing(resource.data) || isInvited(resource.data))
       );
+    }
+
+    // Fallback for legacy lobby docs / client payload differences.
+    // Still requires the updater to claim a seat for themselves.
+    function isPublicLobbySeatClaim() {
+      return isSignedIn() &&
+        isPublicOrMissing(resource.data) &&
+        resource.data.status == "lobby" &&
+        request.resource.data.status == "lobby" &&
+        dataIsMap(request.resource.data.players) &&
+        (
+          request.resource.data.players.p1 == request.auth.uid ||
+          request.resource.data.players.p2 == request.auth.uid ||
+          request.resource.data.players.p3 == request.auth.uid
+        );
+    }
+
+    function dataIsMap(v) {
+      return v is map;
     }
 
     match /games/{gameId} {
@@ -94,7 +76,7 @@ service cloud.firestore {
 
       // Players can update freely (game logic is enforced client-side in v0).
       // Non-players can only perform a restricted "join lobby" update.
-      allow update: if isPlayer(resource.data) || isJoiningLobby();
+      allow update: if isPlayer(resource.data) || isJoiningLobby() || isPublicLobbySeatClaim();
 
       // Allow delete only by creator.
       allow delete: if isSignedIn() && request.auth.uid == resource.data.createdBy;
