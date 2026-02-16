@@ -436,7 +436,7 @@ export async function autoVoteBots(gameId: string, hostUid: string) {
   });
 }
 
-export async function confirmLocation(gameId: string, hostUid: string, preferredLocationId?: string | null) {
+export async function confirmLocation(gameId: string, actorUid: string, preferredLocationId?: string | null) {
   const gameRef = doc(db, "games", gameId);
 
   await runTransaction(db, async (tx) => {
@@ -446,10 +446,11 @@ export async function confirmLocation(gameId: string, hostUid: string, preferred
 
     if (data.status !== "active") throw new Error("Game is not active.");
     if (data.phase !== "choose_location") throw new Error("Not in location selection.");
-    if (data.createdBy !== hostUid) throw new Error("Only the host can confirm.");
     if (data.locationId) return;
 
     const players = data.players ?? {};
+    if (!getMySlot(players, actorUid)) throw new Error("Only seated players can confirm.");
+
     const votes = data.locationVotes ?? {};
     for (const seat of SLOTS) {
       if (!players[seat]) throw new Error("Seat is empty.");

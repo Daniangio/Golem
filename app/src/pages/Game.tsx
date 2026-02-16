@@ -608,13 +608,14 @@ export default function Game() {
   const locationImageUrl = imgSrc(location?.image ?? null);
 
   async function onLocationResolveAnimationDone() {
-    if (!uid || !gameId || !isHost || !resolvingLocationId || confirmingLocationRef.current) return;
+    if (!uid || !gameId || !isPlayer || !resolvingLocationId || confirmingLocationRef.current) return;
     confirmingLocationRef.current = true;
     await guarded(async () => {
       if (!uid || !gameId || !resolvingLocationId) return;
       await confirmLocation(gameId, uid, resolvingLocationId);
     });
     confirmingLocationRef.current = false;
+    setResolvingLocationId(null);
   }
 
   return (
