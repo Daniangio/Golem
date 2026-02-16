@@ -91,6 +91,10 @@ export function GameLobbyView({
             <div className="rounded-xl bg-slate-50 p-3">
               <div className="text-xs text-slate-500">Visibility</div>
               <div className="mt-1 text-sm font-semibold text-slate-900">{game.visibility}</div>
+              <div className="mt-2 text-xs text-slate-500">Run type</div>
+              <div className="mt-1 text-sm font-semibold text-slate-900">
+                {game.gameMode === "single_location" ? "Single location" : "Campaign"}
+              </div>
               <div className="mt-2 text-xs text-slate-500">Status</div>
               <div className="mt-1 text-sm font-semibold text-slate-900">{game.status}</div>
             </div>

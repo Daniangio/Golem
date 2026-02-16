@@ -26,17 +26,15 @@ import {
   type GameSummary,
 } from "../lib/firestoreGames";
 import { useAuthUser } from "../lib/useAuth";
-import { getLocationById, getLocationsForStage, getPartById, type LocationCard } from "../game/locations";
-import { DeckStub, PulseCardMini, PulseCardPreview } from "../components/game/PulseCards";
-import { CardBack } from "../components/game/CardBack";
-import { AnimatedTerrainCard } from "../components/game/AnimatedTerrainCard";
+import { getAllLocations, getLocationById, getLocationsForStage, getPartById, type LocationCard } from "../game/locations";
 import { CommunionExchangePanel, PlayerBottomPanel } from "../components/game/PlayerBottomPanel";
-import { LocationShowcase } from "../components/game/LocationShowcase";
 import { DiscardModal, OutcomeHistoryModal, TerrainDeckModal } from "../components/game/GameModals";
 import type { PlayerSlot, Players } from "../types";
 import { GameLobbyView } from "./game/GameLobbyView";
 import { ChooseLocationPhase } from "./game/phases/ChooseLocationPhase";
 import { ChoosePartsPhase } from "./game/phases/ChoosePartsPhase";
+import { PlayPhase } from "./game/phases/PlayPhase";
+import { useMobileLayout } from "./game/hooks/useMobileLayout";
 import {
   SLOTS,
   canControlSeat,
@@ -54,6 +52,7 @@ export default function Game() {
   const { gameId } = useParams();
   const { user } = useAuthUser();
   const uid = user?.uid ?? null;
+  const isMobileLayout = useMobileLayout();
   const displayName = useMemo(() => displayNameForUser(user), [user]);
 
   const [busy, setBusy] = useState(false);
@@ -64,9 +63,9 @@ export default function Game() {
   const [showLogModal, setShowLogModal] = useState(false);
   const [showTerrainModal, setShowTerrainModal] = useState(false);
   const [showFacultyModal, setShowFacultyModal] = useState(false);
+  const [showLocationInfoModal, setShowLocationInfoModal] = useState(false);
   const [locationCarouselIndex, setLocationCarouselIndex] = useState(0);
   const [resolvingLocationId, setResolvingLocationId] = useState<string | null>(null);
-  const facultyPopoverRef = useRef<HTMLDivElement | null>(null);
   const resolvingVotesKeyRef = useRef<string | null>(null);
   const confirmingLocationRef = useRef(false);
   const [sparkAnim, setSparkAnim] = useState<{ type: "gain" | "loss"; tick: number } | null>(null);
@@ -118,6 +117,7 @@ export default function Game() {
     // Reset selection when switching seats.
     setSelectedCardId(null);
     setShowFacultyModal(false);
+    setShowLocationInfoModal(false);
   }, [activeSeat]);
 
   useEffect(() => {
@@ -151,26 +151,20 @@ export default function Game() {
   ]);
 
   useEffect(() => {
-    if (!showFacultyModal) return;
-
-    const onDown = (e: MouseEvent) => {
-      const target = e.target as Node | null;
-      if (!target) return;
-      if (facultyPopoverRef.current && facultyPopoverRef.current.contains(target)) return;
-      setShowFacultyModal(false);
-    };
+    if (!showFacultyModal && !showLocationInfoModal) return;
 
     const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") setShowFacultyModal(false);
+      if (e.key === "Escape") {
+        setShowFacultyModal(false);
+        setShowLocationInfoModal(false);
+      }
     };
 
-    window.addEventListener("mousedown", onDown);
     window.addEventListener("keydown", onKey);
     return () => {
-      window.removeEventListener("mousedown", onDown);
       window.removeEventListener("keydown", onKey);
     };
-  }, [showFacultyModal]);
+  }, [showFacultyModal, showLocationInfoModal]);
 
   const actingSeat =
     activeSeat && uid && game && canControlSeat(game, uid, activeSeat) ? activeSeat : mySlot;
@@ -413,7 +407,12 @@ export default function Game() {
   const sphere = game.chapter ?? 1;
 
   const location = getLocationById(game.locationId ?? null);
-  const locationOptions = (game.locationOptions ?? getLocationsForStage(game.chapter ?? 1).map((l) => l.id))
+  const locationOptions = (
+    game.locationOptions ??
+    (game.gameMode === "single_location"
+      ? getAllLocations().map((l) => l.id)
+      : getLocationsForStage(game.chapter ?? 1).map((l) => l.id))
+  )
     .map((id) => getLocationById(id))
     .filter(Boolean) as LocationCard[];
 
@@ -507,6 +506,7 @@ export default function Game() {
 
   const ABILITY_EXTRA_CARD = "once_per_chapter_extra_card_after_reveal";
   const ABILITY_FUSE = "once_per_chapter_fuse_to_zero_after_reveal";
+  const ABILITY_OVERSHOOT_SHIELD = "once_per_chapter_prevent_first_overshoot_damage";
 
   const canPlayFromSelected = Boolean(
     gameId &&
@@ -580,6 +580,10 @@ export default function Game() {
       const used = Boolean(selectedAbilityUsed[ABILITY_FUSE]);
       return { label: used ? "Dissolution used" : "Dissolution ready", tone: used ? "muted" : "good" } as const;
     }
+    if (selectedHasEffect(ABILITY_OVERSHOOT_SHIELD)) {
+      const used = Boolean(selectedAbilityUsed[ABILITY_OVERSHOOT_SHIELD]);
+      return { label: used ? "Shield used" : "Shield ready", tone: used ? "muted" : "good" } as const;
+    }
     return { label: "Passive", tone: "muted" } as const;
   })();
 
@@ -596,7 +600,11 @@ export default function Game() {
     return out;
   })();
 
-  const sphereImageUrl = imgSrc(locationOptions[0]?.sphereImage ?? location?.sphereImage ?? null);
+  const carouselCurrentLocation =
+    locationOptions.length > 0
+      ? locationOptions[((locationCarouselIndex % locationOptions.length) + locationOptions.length) % locationOptions.length]
+      : null;
+  const sphereImageUrl = imgSrc(carouselCurrentLocation?.sphereImage ?? location?.sphereImage ?? null);
   const locationImageUrl = imgSrc(location?.image ?? null);
 
   async function onLocationResolveAnimationDone() {
@@ -611,7 +619,11 @@ export default function Game() {
 
   return (
     <div className="h-full w-full text-white">
-      <div className="grid h-full grid-rows-[5%_5%_minmax(0,1fr)_20%] gap-1">
+      <div
+        className={`grid h-full gap-1 ${
+          isMobileLayout ? "grid-rows-[7%_6%_minmax(0,1fr)_23%]" : "grid-rows-[5%_5%_minmax(0,1fr)_26%]"
+        }`}
+      >
         <aside className="shrink-0 rounded-3xl bg-white/5 px-2 py-1 ring-1 ring-white/10">
           <div className="flex h-full items-center gap-2">
             {seatList.map((seat) => {
@@ -641,20 +653,20 @@ export default function Game() {
 
         <div className="shrink-0 rounded-3xl bg-white/5 px-2 py-1 ring-1 ring-white/10">
           <div className="flex h-full items-center gap-2">
-            {game.phase !== "play" && (
+            {(game.phase !== "play" || isMobileLayout) && (
               <>
-                <div className="shrink-0 rounded-2xl bg-white/5 px-2 py-1 text-[11px] font-extrabold text-white ring-1 ring-white/10">
+                <div className="shrink-0 rounded-2xl bg-white/5 px-2 py-1 text-[10px] font-extrabold text-white ring-1 ring-white/10">
                   ✦ {spark}
                 </div>
-                <div className="shrink-0 rounded-2xl bg-white/5 px-2 py-1 text-[11px] font-extrabold text-white ring-1 ring-white/10">
+                <div className="shrink-0 rounded-2xl bg-white/5 px-2 py-1 text-[10px] font-extrabold text-white ring-1 ring-white/10">
                   ⟁ {friction}
                 </div>
               </>
             )}
-            <div className="shrink-0 rounded-2xl bg-white/5 px-2 py-1 text-[11px] font-semibold text-white/70 ring-1 ring-white/10">
+            <div className="shrink-0 rounded-2xl bg-white/5 px-2 py-1 text-[10px] font-semibold text-white/70 ring-1 ring-white/10">
               Sphere <span className="ml-1 font-extrabold text-white">{sphere}</span>
             </div>
-            <div className="min-w-0 flex-1 truncate text-[11px] font-semibold text-white/70">
+            <div className={`min-w-0 flex-1 truncate font-semibold text-white/70 ${isMobileLayout ? "text-[10px]" : "text-[11px]"}`}>
               {msg ? (
                 <span className="text-rose-200">{msg}</span>
               ) : exchangeStatusLine ? (
@@ -663,6 +675,17 @@ export default function Game() {
                 `Phase: ${game.phase ?? "—"}`
               )}
             </div>
+            {isMobileLayout && location?.rule ? (
+              <button
+                type="button"
+                onClick={() => setShowLocationInfoModal(true)}
+                className="shrink-0 rounded-xl bg-white/10 px-2 py-1 text-[11px] font-extrabold text-white ring-1 ring-white/10 hover:bg-white/15"
+                aria-label="Open location rule"
+                title="Location rule"
+              >
+                ⓘ
+              </button>
+            ) : null}
           </div>
         </div>
 
@@ -732,7 +755,7 @@ export default function Game() {
             <div className="min-h-0">
                 {game.phase === "choose_location" && (
                   <ChooseLocationPhase
-                    sphere={sphere}
+                    sphere={carouselCurrentLocation?.sphere ?? sphere}
                     sphereImageUrl={sphereImageUrl}
                     locationOptions={locationOptions}
                     voteByValue={voteByValue}
@@ -763,256 +786,95 @@ export default function Game() {
                 )}
 
                 {game.phase === "play" && (
-                  <div className="h-full min-h-0 overflow-x-auto overflow-y-hidden pr-1">
-                    <div className="flex h-full min-w-max items-start gap-2">
-                      {location ? (
-                        <LocationShowcase
-                          locationName={location.name}
-                          locationRule={location.rule}
-                          locationImageUrl={locationImageUrl}
-                          locationTokens={locationTokens}
-                          spark={spark}
-                          friction={friction}
-                          sparkAnimClassName={
-                            sparkAnim?.type === "gain"
-                              ? "spark-stat-gain"
-                              : sparkAnim?.type === "loss"
-                                ? "spark-stat-loss"
-                                : undefined
-                          }
-                          frictionAnimClassName={
-                            frictionAnim?.type === "up"
-                              ? "friction-stat-up"
-                              : frictionAnim?.type === "down"
-                                ? "friction-stat-down"
-                                : undefined
-                          }
-                        />
-                      ) : (
-                        <div className="w-[260px] shrink-0 rounded-2xl bg-slate-950/85 p-3 text-sm text-white/70 ring-1 ring-white/10">
-                          No location chosen yet.
-                        </div>
-                      )}
-
-                      <div className="w-[220px] shrink-0 rounded-2xl bg-white/5 p-2 ring-1 ring-white/10">
-                        <div className="flex items-center justify-between">
-                          <div className="text-xs font-semibold text-white/70">Terrain</div>
-                          <div className="text-[11px] font-semibold text-white/50">{terrainRemaining} left</div>
-                        </div>
-                        <div className="mt-2 flex items-center justify-center gap-2">
-                          <DeckStub
-                            label="Deck"
-                            count={terrainRemaining}
-                            onClick={
-                              !isPreSelection &&
-                              terrainDeck.length &&
-                              SLOTS.some((s) => seatHasEffect(s, "peek_terrain_deck"))
-                                ? () => setShowTerrainModal(true)
-                                : undefined
-                            }
-                          />
-                          <AnimatedTerrainCard
-                            terrain={terrain}
-                            hiddenState={
-                              isPreSelection
-                                ? "pre_selection"
-                                : selectedHasEffect("hide_terrain_until_played") &&
-                                    pulsePhase === "selection" &&
-                                    !played[selectedSeat]?.card
-                                  ? "hidden_until_played"
-                                  : null
-                            }
-                            lastOutcomeResult={game.lastOutcome?.result}
-                          />
-                        </div>
-                      </div>
-
-                      <div className="w-[120px] shrink-0 rounded-2xl bg-white/5 p-2 ring-1 ring-white/10">
-                        <div className="flex items-center justify-center gap-2">
-                          <div className="text-xs font-semibold text-white/70">Akashic Reservoir</div>
-                        </div>
-                        <div className="mt-3 flex flex-wrap items-center justify-center gap-2">
-                          {game.reservoir ? (
-                            <div className="flex flex-col items-center gap-2">
-                              <PulseCardPreview card={game.reservoir} />
-                            </div>
-                          ) : null}
-                          {game.reservoir2 ? (
-                            <div className="flex flex-col items-center gap-2">
-                              <PulseCardPreview card={game.reservoir2} />
-                            </div>
-                          ) : null}
-                          {!game.reservoir && !game.reservoir2 ? (
-                            <div className="text-sm text-white/60">No reservoir.</div>
-                          ) : null}
-                        </div>
-                      </div>
-
-                      <div className="w-[330px] shrink-0 rounded-2xl bg-white/5 p-2 ring-1 ring-white/10">
-                        <div className="flex flex-wrap items-center justify-between gap-2">
-                          <div className="text-xs font-semibold text-white/70">Played cards</div>
-                          <div className="flex flex-wrap items-center gap-2">
-                            {pulsePhase === "actions" && isHost && (
-                              <button
-                                onClick={() =>
-                                  guarded(async () => {
-                                    if (!uid || !gameId) return;
-                                    await endActions(gameId, uid);
-                                  })
-                                }
-                                disabled={busy || !haveAllPlayed || exchangePending}
-                                className="rounded-2xl bg-emerald-500 px-3 py-1 text-[11px] font-extrabold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-40"
-                              >
-                                End actions
-                              </button>
-                            )}
-                          </div>
-                        </div>
-
-                        <div className="mt-1 grid max-w-80 min-h-0 grid-cols-3 gap-1.5">
-		                          {SLOTS.map((s) => {
-		                            const entry = played[s];
-		                            const seatUid = players[s] ?? "";
-		                            const seatName = seatUid ? playerLabel(seatUid, game.playerNames) : seatLabel(s);
-		                            const isOwnOrControlled = Boolean(
-		                              uid && (seatUid === uid || (isHost && isBotUid(seatUid) && activeSeat === s))
-		                            );
-		                            const revealedToAll = Boolean(entry?.revealedDuringSelection && pulsePhase === "selection");
-		                            const showFaceUpInSelection = Boolean(
-		                              entry?.card &&
-		                                (pulsePhase === "selection" || pulsePhase === "pre_selection") &&
-		                                (revealedToAll || isOwnOrControlled)
-		                            );
-		                            const canSwapR1 = Boolean(
-		                              pulsePhase === "actions" && uid && gameId && game.reservoir && canControlSeat(game, uid, s)
-		                            );
-		                            const canSwapR2 = Boolean(
-		                              pulsePhase === "actions" && uid && gameId && game.reservoir2 && canControlSeat(game, uid, s)
-		                            );
-		                            const canSwapHere = canSwapR1 || canSwapR2;
-		                            const fused = entry?.valueOverride === 0;
-		                            const canFuseHere = Boolean(fuseAvailable && !fused && entry?.card);
-                            return (
-                              <div key={s} className="relative rounded-2xl bg-white/5 p-2 ring-1 ring-white/10">
-                                <div className="flex items-center justify-between gap-0">
-                                  <div className="min-w-0 truncate text-[10px] font-semibold text-white/70">
-                                    {seatLabel(s)} • {seatName}
-                                  </div>
-	                                </div>
-	                                <div className="mt-1 flex items-center justify-center">
-		                                  {entry?.card ? (
-		                                    pulsePhase === "selection" || pulsePhase === "pre_selection" ? (
-	                                      showFaceUpInSelection ? (
-	                                        <PulseCardMini card={entry.card} selected={false} lift="none" onClick={() => {}} />
-	                                      ) : (
-	                                        <CardBack />
-	                                      )
-	                                    ) : (
-	                                      <div className="flex flex-row items-center gap-1">
-	                                        <div className="relative pt-2">
-	                                          <PulseCardMini card={entry.card} selected={false} lift="none" onClick={() => {}} />
-                                          {fused && (
-                                            <div className="pointer-events-none absolute bottom-2 right-2 rounded-full bg-fuchsia-500/30 px-2 py-0.5 text-[11px] font-extrabold text-fuchsia-100 ring-1 ring-fuchsia-200/20">
-                                              0
-                                            </div>
-                                          )}
-                                          {(canSwapHere || canFuseHere) && (
-                                            <div className="absolute left-1/2 top-0 z-10 flex -translate-x-1/2 gap-2">
-	                                              {canSwapR1 && (
-	                                                <button
-	                                                  type="button"
-	                                                  onClick={() =>
-	                                                    guarded(async () => {
-	                                                      if (!uid || !gameId) return;
-	                                                      await swapWithReservoir(gameId, uid, s, 1);
-	                                                    })
-	                                                  }
-	                                                  disabled={busy}
-	                                                  className="rounded-full bg-white px-3 py-1 text-[11px] font-extrabold text-slate-900 shadow disabled:opacity-40"
-	                                                >
-	                                                  Swap R1
-	                                                </button>
-	                                              )}
-	                                              {canSwapR2 && (
-	                                                <button
-	                                                  type="button"
-	                                                  onClick={() =>
-	                                                    guarded(async () => {
-	                                                      if (!uid || !gameId) return;
-	                                                      await swapWithReservoir(gameId, uid, s, 2);
-	                                                    })
-	                                                  }
-	                                                  disabled={busy}
-	                                                  className="rounded-full bg-white px-3 py-1 text-[11px] font-extrabold text-slate-900 shadow disabled:opacity-40"
-	                                                >
-	                                                  Swap R2
-	                                                </button>
-	                                              )}
-                                              {canFuseHere && fuseSeat && (
-	                                                <button
-	                                                  type="button"
-	                                                  onClick={() =>
-	                                                    guarded(async () => {
-	                                                      if (!uid || !gameId) return;
-	                                                      await useFuse(gameId, uid, fuseSeat, s);
-	                                                    })
-	                                                  }
-	                                                  disabled={busy}
-	                                                  className="rounded-full bg-fuchsia-400 px-3 py-1 text-[11px] font-extrabold text-slate-950 shadow disabled:opacity-40"
-		                                                >
-	                                                  Dissolve → 0
-	                                                </button>
-                                              )}
-                                            </div>
-                                          )}
-                                        </div>
-
-                                        {entry.extraCard && (
-                                          <div className="flex flex-col items-center gap-1">
-                                            <div className="text-[10px] font-semibold text-emerald-200/80">Overflow</div>
-                                            <PulseCardMini
-                                              card={entry.extraCard}
-                                              selected={false}
-                                              lift="none"
-                                              className="scale-[0.9]"
-                                              onClick={() => {}}
-                                            />
-                                          </div>
-                                        )}
-                                      </div>
-                                    )
-                                  ) : (
-                                    <div className="text-xs text-white/50">Not played yet.</div>
-                                  )}
-                                </div>
-                              </div>
-                            );
-                          })}
-                        </div>
-                      </div>
-
-                      <div className="grid h-[224px] w-[72px] shrink-0 grid-rows-2 items-center gap-2">
-                        <button
-                          type="button"
-                          onClick={() => setShowDiscardModal(true)}
-                          className="flex items-center justify-center rounded-full bg-white/10 px-3 py-2 text-sm font-extrabold text-white ring-1 ring-white/10 hover:bg-white/15"
-                          aria-label="Inspect discard pile"
-                          title="Discard pile"
-                        >
-                          🗑 <span className="ml-2 text-[11px] font-semibold text-white/70">{discardAll.length}</span>
-                        </button>
-                        <button
-                          type="button"
-                          onClick={() => setShowLogModal(true)}
-                          className="flex items-center justify-center rounded-full bg-white/10 px-3 py-2 text-sm font-extrabold text-white ring-1 ring-white/10 hover:bg-white/15"
-                          aria-label="Inspect history"
-                          title="History"
-                        >
-                          📜 <span className="ml-2 text-[11px] font-semibold text-white/70">{outcomeLog.length}</span>
-                        </button>
-                      </div>
-                    </div>
-                  </div>
+                  <PlayPhase
+                    isMobileLayout={isMobileLayout}
+                    locationName={location?.name ?? null}
+                    locationRule={location?.rule ?? null}
+                    locationImageUrl={locationImageUrl}
+                    locationTokens={locationTokens}
+                    spark={spark}
+                    friction={friction}
+                    sparkAnimClassName={
+                      sparkAnim?.type === "gain"
+                        ? "spark-stat-gain"
+                        : sparkAnim?.type === "loss"
+                          ? "spark-stat-loss"
+                          : undefined
+                    }
+                    frictionAnimClassName={
+                      frictionAnim?.type === "up"
+                        ? "friction-stat-up"
+                        : frictionAnim?.type === "down"
+                          ? "friction-stat-down"
+                          : undefined
+                    }
+                    terrainDeckLength={terrainDeck.length}
+                    terrainRemaining={terrainRemaining}
+                    canPeekTerrainDeck={
+                      !isPreSelection && SLOTS.some((s) => seatHasEffect(s, "peek_terrain_deck"))
+                    }
+                    onOpenTerrainDeck={() => setShowTerrainModal(true)}
+                    terrain={terrain}
+                    terrainHiddenState={
+                      isPreSelection
+                        ? "pre_selection"
+                        : selectedHasEffect("hide_terrain_until_played") &&
+                            pulsePhase === "selection" &&
+                            !played[selectedSeat]?.card
+                          ? "hidden_until_played"
+                          : null
+                    }
+                    lastOutcomeResult={game.lastOutcome?.result}
+                    reservoir={game.reservoir}
+                    reservoir2={game.reservoir2}
+                    pulsePhase={pulsePhase}
+                    isHost={isHost}
+                    busy={busy}
+                    haveAllPlayed={haveAllPlayed}
+                    exchangePending={exchangePending}
+                    onEndActions={() =>
+                      void guarded(async () => {
+                        if (!uid || !gameId) return;
+                        await endActions(gameId, uid);
+                      })
+                    }
+                    played={played}
+                    players={players}
+                    playerNames={game.playerNames}
+                    isOwnOrControlledSeat={(seat) => {
+                      const seatUid = players[seat] ?? "";
+                      return Boolean(uid && (seatUid === uid || (isHost && isBotUid(seatUid) && activeSeat === seat)));
+                    }}
+                    canSwapR1Seat={(seat) =>
+                      Boolean(
+                        pulsePhase === "actions" && uid && gameId && game.reservoir && canControlSeat(game, uid, seat)
+                      )
+                    }
+                    canSwapR2Seat={(seat) =>
+                      Boolean(
+                        pulsePhase === "actions" && uid && gameId && game.reservoir2 && canControlSeat(game, uid, seat)
+                      )
+                    }
+                    canFuseSeat={(seat) => Boolean(fuseAvailable && played[seat]?.card && played[seat]?.valueOverride !== 0)}
+                    onSwapR1={(seat) =>
+                      void guarded(async () => {
+                        if (!uid || !gameId) return;
+                        await swapWithReservoir(gameId, uid, seat, 1);
+                      })
+                    }
+                    onSwapR2={(seat) =>
+                      void guarded(async () => {
+                        if (!uid || !gameId) return;
+                        await swapWithReservoir(gameId, uid, seat, 2);
+                      })
+                    }
+                    onFuse={(seat) =>
+                      void guarded(async () => {
+                        if (!uid || !gameId || !fuseSeat) return;
+                        await useFuse(gameId, uid, fuseSeat, seat);
+                      })
+                    }
+                  />
                 )}
               </div>
             </div>
@@ -1020,6 +882,7 @@ export default function Game() {
 
         {game.phase !== "choose_location" && game.phase !== "choose_parts" && (
           <PlayerBottomPanel
+            mobileLayout={isMobileLayout}
             seatTag={seatLabel(selectedSeat)}
             playerName={selectedName}
             viewOnly={Boolean(selectedUid && !canActForSelected)}
@@ -1066,83 +929,39 @@ export default function Game() {
                 await playAuxBatteryCard(gameId, uid, actingSeat, selectedCardId);
               })
             }
+            handCount={selectedHandRaw.length}
             busy={busy}
             icons={
               <>
-                <div ref={facultyPopoverRef} className="relative">
-                  <button
-                    type="button"
-                    onClick={() => setShowFacultyModal((v) => !v)}
-                    disabled={!selectedPartDetail}
-                    className="flex h-9 w-9 items-center justify-center rounded-2xl bg-white/10 text-sm font-extrabold text-white ring-1 ring-white/10 transition hover:bg-white/15 disabled:opacity-40"
-                    title={selectedPartDetail ? selectedPartDetail.name : "No faculty"}
-                    aria-haspopup="dialog"
-                    aria-expanded={showFacultyModal}
-                  >
-                    ✦
-                  </button>
-
-                  {showFacultyModal && (
-                    <div className="absolute bottom-full right-0 z-50 mb-2 w-[min(320px,calc(100vw-2rem))]">
-                      <div className="rounded-3xl bg-slate-950 p-4 text-white shadow-2xl ring-1 ring-white/10">
-                        <div className="flex items-start justify-between gap-3">
-                          <div className="min-w-0">
-                            <div className="text-[11px] font-semibold text-white/60">Faculty</div>
-                            <div className="mt-1 truncate text-sm font-extrabold text-white">
-                              {seatLabel(selectedSeat)} • {selectedName}
-                            </div>
-                          </div>
-                          <button
-                            type="button"
-                            onClick={() => setShowFacultyModal(false)}
-                            className="shrink-0 rounded-full bg-white/10 px-2 py-1 text-[11px] font-semibold text-white/80 hover:bg-white/15"
-                            aria-label="Close faculty details"
-                          >
-                            Close
-                          </button>
-                        </div>
-
-                        {selectedPartDetail ? (
-                          <div className="mt-3 rounded-2xl bg-white/5 p-3 ring-1 ring-white/10">
-                            <div className="flex flex-wrap items-center justify-between gap-2">
-                              <div className="text-sm font-extrabold text-white">{selectedPartDetail.name}</div>
-                              <div className="flex items-center gap-2">
-                                {selectedPartToken && (
-                                  <span
-                                    className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ${
-                                      selectedPartToken.tone === "good"
-                                        ? "bg-emerald-400/20 text-emerald-200 ring-emerald-200/20"
-                                        : "bg-white/10 text-white/70 ring-white/10"
-                                    }`}
-                                  >
-                                    {selectedPartToken.label}
-                                  </span>
-                                )}
-                                <span
-                                  className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                                    selectedPartDetail.type === "compulsory"
-                                      ? "bg-amber-400/20 text-amber-200"
-                                      : "bg-slate-200/10 text-slate-200"
-                                  }`}
-                                >
-                                  {selectedPartDetail.type}
-                                </span>
-                              </div>
-                            </div>
-                            <div className="mt-2 text-[11px] leading-relaxed text-white/80">{selectedPartDetail.effect}</div>
-                          </div>
-                        ) : (
-                          <div className="mt-3 rounded-2xl bg-white/5 p-3 text-[11px] text-white/70 ring-1 ring-white/10">
-                            No faculty chosen yet.
-                          </div>
-                        )}
-                      </div>
-                    </div>
-                  )}
-                </div>
-                <div className="rounded-full bg-white/10 px-2 py-0.5 text-[11px] font-semibold text-white/75 ring-1 ring-white/10">
-                  🂠 {selectedHandRaw.length}
-                </div>
+                <button
+                  type="button"
+                  onClick={() => setShowFacultyModal(true)}
+                  disabled={!selectedPartDetail}
+                  className="flex h-9 w-9 items-center justify-center rounded-2xl bg-white/10 text-sm font-extrabold text-white ring-1 ring-white/10 transition hover:bg-white/15 disabled:opacity-40"
+                  title={selectedPartDetail ? selectedPartDetail.name : "No faculty"}
+                  aria-haspopup="dialog"
+                  aria-expanded={showFacultyModal}
+                >
+                  ✦
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowDiscardModal(true)}
+                  className="flex h-9 items-center gap-1 rounded-2xl bg-white/10 px-2 text-[11px] font-extrabold text-white ring-1 ring-white/10 hover:bg-white/15"
+                  aria-label="Inspect discard pile"
+                  title="Discard pile"
+                >
+                  🗑 <span className="font-semibold text-white/70">{discardAll.length}</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setShowLogModal(true)}
+                  className="flex h-9 items-center gap-1 rounded-2xl bg-white/10 px-2 text-[11px] font-extrabold text-white ring-1 ring-white/10 hover:bg-white/15"
+                  aria-label="Inspect history"
+                  title="History"
+                >
+                  📜 <span className="font-semibold text-white/70">{outcomeLog.length}</span>
+                </button>
               </>
             }
             hiddenNote={
@@ -1153,6 +972,101 @@ export default function Game() {
           />
         )}
       </div>
+
+      {showFacultyModal && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/70 p-4"
+          role="dialog"
+          aria-modal="true"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setShowFacultyModal(false);
+          }}
+        >
+          <div className="w-full max-w-md rounded-3xl bg-slate-950 p-4 text-white shadow-2xl ring-1 ring-white/10">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-[11px] font-semibold text-white/60">Faculty</div>
+                <div className="mt-1 truncate text-sm font-extrabold text-white">
+                  {seatLabel(selectedSeat)} • {selectedName}
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowFacultyModal(false)}
+                className="shrink-0 rounded-full bg-white/10 px-2 py-1 text-[11px] font-semibold text-white/80 hover:bg-white/15"
+                aria-label="Close faculty details"
+              >
+                Close
+              </button>
+            </div>
+
+            {selectedPartDetail ? (
+              <div className="mt-3 rounded-2xl bg-white/5 p-3 ring-1 ring-white/10">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="text-sm font-extrabold text-white">{selectedPartDetail.name}</div>
+                  <div className="flex items-center gap-2">
+                    {selectedPartToken && (
+                      <span
+                        className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ${
+                          selectedPartToken.tone === "good"
+                            ? "bg-emerald-400/20 text-emerald-200 ring-emerald-200/20"
+                            : "bg-white/10 text-white/70 ring-white/10"
+                        }`}
+                      >
+                        {selectedPartToken.label}
+                      </span>
+                    )}
+                    <span
+                      className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
+                        selectedPartDetail.type === "compulsory"
+                          ? "bg-amber-400/20 text-amber-200"
+                          : "bg-slate-200/10 text-slate-200"
+                      }`}
+                    >
+                      {selectedPartDetail.type}
+                    </span>
+                  </div>
+                </div>
+                <div className="mt-2 text-[11px] leading-relaxed text-white/80">{selectedPartDetail.effect}</div>
+              </div>
+            ) : (
+              <div className="mt-3 rounded-2xl bg-white/5 p-3 text-[11px] text-white/70 ring-1 ring-white/10">
+                No faculty chosen yet.
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {showLocationInfoModal && isMobileLayout && location?.rule && (
+        <div
+          className="fixed inset-0 z-[80] flex items-center justify-center bg-slate-950/70 p-4"
+          role="dialog"
+          aria-modal="true"
+          onMouseDown={(e) => {
+            if (e.target === e.currentTarget) setShowLocationInfoModal(false);
+          }}
+        >
+          <div className="w-full max-w-md rounded-3xl bg-slate-950 p-4 text-white shadow-2xl ring-1 ring-white/10">
+            <div className="flex items-start justify-between gap-3">
+              <div className="min-w-0">
+                <div className="text-[11px] font-semibold text-white/60">Location rule</div>
+                <div className="mt-1 truncate text-sm font-extrabold text-white">{location.name}</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setShowLocationInfoModal(false)}
+                className="shrink-0 rounded-full bg-white/10 px-2 py-1 text-[11px] font-semibold text-white/80 hover:bg-white/15"
+              >
+                Close
+              </button>
+            </div>
+            <div className="mt-3 rounded-2xl bg-white/5 p-3 text-[12px] leading-relaxed text-white/85 ring-1 ring-white/10">
+              {location.rule}
+            </div>
+          </div>
+        </div>
+      )}
 
       <DiscardModal
         open={showDiscardModal}

@@ -2,6 +2,7 @@ import { getLocationsForStage } from "./catalog";
 
 export {
   getLocationById,
+  getAllLocations,
   getLocationsForStage,
   getLocationsForSphere,
   getPartById,
@@ -15,6 +16,7 @@ export {
   type FacultyDef,
   type SigilDef,
   type Effect,
+  type TerrainDeckType,
 } from "./catalog";
 
 // Back-compat exports used by older code.

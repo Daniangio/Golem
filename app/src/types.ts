@@ -1,5 +1,6 @@
 export type GameStatus = "lobby" | "active" | "completed";
 export type GameVisibility = "public" | "private";
+export type GameMode = "campaign" | "single_location";
 
 export type GamePhase =
   | "setup" // legacy (pre-start)
@@ -37,6 +38,7 @@ export type TerrainCard = {
   min: number;
   max: number;
 };
+export type TerrainDeckType = "sphere_1" | "sphere_2" | "sphere_3";
 
 export type PulsePhase = "pre_selection" | "selection" | "actions";
 
@@ -63,6 +65,7 @@ export type GameDoc = {
 
   status: GameStatus;
   visibility: GameVisibility;
+  gameMode?: GameMode;
   maxPlayers: 3;
 
   players: Players;
@@ -101,6 +104,7 @@ export type GameDoc = {
   } | null;
 
   terrainDeck?: TerrainCard[];
+  terrainDeckType?: TerrainDeckType;
   terrainIndex?: number; // 0-4
   pulsePhase?: PulsePhase;
   played?: PlayedCards;

@@ -4,8 +4,10 @@ import { CardBack } from "./CardBack";
 import type { PlayerSlot, PulseCard } from "../../types";
 
 export function PlayerBottomPanel({
+  mobileLayout = false,
   seatTag,
   playerName,
+  handCount,
   viewOnly,
   message,
   canSeeHand,
@@ -20,8 +22,10 @@ export function PlayerBottomPanel({
   icons,
   hiddenNote,
 }: {
+  mobileLayout?: boolean;
   seatTag: string;
   playerName: string;
+  handCount: number;
   viewOnly: boolean;
   message?: React.ReactNode;
   canSeeHand: boolean;
@@ -36,13 +40,97 @@ export function PlayerBottomPanel({
   icons?: React.ReactNode;
   hiddenNote?: React.ReactNode;
 }) {
+  const mobileCardClass = "h-[102px] w-[68px] rounded-xl";
+
+  const cardsRow = (
+    <div className="relative min-h-0 overflow-x-visible overflow-y-visible">
+      <div className={`flex h-full items-end ${mobileLayout ? "gap-0.5" : "gap-2"}`}>
+        {canSeeHand ? (
+          hand.map((c) => {
+            const selected = selectedCardId === c.id;
+            return (
+              <div key={c.id} className={`relative shrink-0 pt-6 ${mobileLayout ? "-ml-4 first:ml-0" : ""}`}>
+                <PulseCardMini
+                  card={c}
+                  selected={selected}
+                  lift="lg"
+                  className={mobileLayout ? mobileCardClass : ""}
+                  onClick={() => onToggleSelectCard(c.id)}
+                />
+                {selected && canPlaySelected && (
+                  <button
+                    type="button"
+                    onClick={onPlaySelected}
+                    disabled={busy}
+                    className="absolute left-1/2 top-0 -translate-x-1/2 rounded-full bg-white px-3 py-1 text-[11px] font-extrabold text-slate-900 shadow disabled:opacity-40"
+                  >
+                    Play
+                  </button>
+                )}
+                {selected && canOverflowSelected && (
+                  <button
+                    type="button"
+                    onClick={onOverflowSelected}
+                    disabled={busy}
+                    className="absolute left-1/2 top-0 -translate-x-1/2 rounded-full bg-emerald-400 px-3 py-1 text-[11px] font-extrabold text-slate-950 shadow disabled:opacity-40"
+                  >
+                    Overflow
+                  </button>
+                )}
+              </div>
+            );
+          })
+        ) : (
+          Array.from({ length: Math.max(0, hand.length) }).map((_, i) => (
+            <CardBack
+              key={i}
+              className={`${mobileLayout ? mobileCardClass : "h-[120px] w-[80px] rounded-2xl"} shrink-0 ${
+                mobileLayout ? "-ml-4 first:ml-0" : ""
+              }`}
+            />
+          ))
+        )}
+      </div>
+    </div>
+  );
+
+  if (mobileLayout) {
+    return (
+      <div className="relative z-30 flex min-h-0 flex-col overflow-visible rounded-3xl bg-white/8 p-2 ring-1 ring-white/15">
+        <div className="mb-1 flex items-center justify-between gap-2">
+          <div className="min-w-0 truncate text-[11px] font-extrabold text-white">
+            {seatTag} • {playerName} {viewOnly ? <span className="font-semibold text-white/50">(view-only)</span> : null}
+          </div>
+          <div className="shrink-0 rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold text-white/80 ring-1 ring-white/15">
+            🂠 {handCount}
+          </div>
+          {hiddenNote ? <div className="text-[10px] font-semibold text-white/45">{hiddenNote}</div> : null}
+        </div>
+
+        {message ? (
+          <div className="mb-1 max-h-14 overflow-auto rounded-2xl bg-white/10 px-2 py-1 text-[11px] ring-1 ring-white/10">{message}</div>
+        ) : null}
+
+        <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-end gap-2">
+          <div className="min-h-0 overflow-x-auto overflow-y-visible pb-1">{cardsRow}</div>
+          <div className="flex shrink-0 flex-col items-end gap-2">{icons}</div>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="relative z-30 flex min-h-0 flex-col overflow-visible rounded-3xl bg-white/5 p-2 ring-1 ring-white/10">
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(140px,18%)_minmax(140px,28%)_minmax(0,1fr)_auto] items-stretch gap-2">
         <div className="min-h-0 rounded-2xl bg-white/5 px-3 py-2 ring-1 ring-white/10">
           <div className="text-[11px] font-semibold text-white/60">Hand</div>
-          <div className="mt-1 truncate text-[12px] font-extrabold text-white">
-            {seatTag} • {playerName} {viewOnly ? <span className="font-semibold text-white/50">(view-only)</span> : null}
+          <div className="mt-1 flex items-center justify-between gap-2">
+            <div className="min-w-0 truncate text-[12px] font-extrabold text-white">
+              {seatTag} • {playerName} {viewOnly ? <span className="font-semibold text-white/50">(view-only)</span> : null}
+            </div>
+            <div className="shrink-0 rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold text-white/80 ring-1 ring-white/15">
+              🂠 {handCount}
+            </div>
           </div>
         </div>
 
@@ -50,52 +138,10 @@ export function PlayerBottomPanel({
           {message ?? <div className="text-[11px] text-white/40"> </div>}
         </div>
 
-        <div className="relative min-h-0 overflow-x-visible overflow-y-visible">
-          <div className="flex h-full items-end gap-2">
-            {canSeeHand ? (
-              hand.map((c) => {
-                const selected = selectedCardId === c.id;
-                return (
-                  <div key={c.id} className="relative shrink-0 pt-6">
-                    <PulseCardMini
-                      card={c}
-                      selected={selected}
-                      lift="lg"
-                      onClick={() => onToggleSelectCard(c.id)}
-                    />
-                    {selected && canPlaySelected && (
-                      <button
-                        type="button"
-                        onClick={onPlaySelected}
-                        disabled={busy}
-                        className="absolute left-1/2 top-0 -translate-x-1/2 rounded-full bg-white px-3 py-1 text-[11px] font-extrabold text-slate-900 shadow disabled:opacity-40"
-                      >
-                        Play
-                      </button>
-                    )}
-                    {selected && canOverflowSelected && (
-                      <button
-                        type="button"
-                        onClick={onOverflowSelected}
-                        disabled={busy}
-                        className="absolute left-1/2 top-0 -translate-x-1/2 rounded-full bg-emerald-400 px-3 py-1 text-[11px] font-extrabold text-slate-950 shadow disabled:opacity-40"
-                      >
-                        Overflow
-                      </button>
-                    )}
-                  </div>
-                );
-              })
-            ) : (
-              Array.from({ length: Math.max(0, hand.length) }).map((_, i) => (
-                <CardBack key={i} className="h-[120px] w-[80px] shrink-0 rounded-2xl" />
-              ))
-            )}
-          </div>
-        </div>
+        {cardsRow}
 
         <div className="flex shrink-0 flex-col items-end justify-between gap-2">
-          <div className="flex items-center gap-2">{icons}</div>
+          <div className="flex flex-col items-end gap-2">{icons}</div>
         </div>
       </div>
 

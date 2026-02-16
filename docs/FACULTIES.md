@@ -22,7 +22,7 @@ Overclocker: Active. This player can play 2 cards instead of 1 during the select
 
 3. Structural & Utility Modules (Survival)
 
-Reinforced Hull: Passive. The first time the Golem would take Damage in a Chapter, ignore it.
+Reinforced Hull: Passive. The first Overshoot damage in a Sphere is prevented (the pulse still resolves normally and hand reset still happens).
 
 Cooling Fan: Passive. When this player plays a Steam (White) card, it reduces Heat by an additional $1$ point.
 

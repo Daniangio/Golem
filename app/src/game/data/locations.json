@@ -2,6 +2,7 @@
     {
     "id": "S1_MALKUTH_AWAKENING",
     "sphere": 1,
+    "terrainDeckType": "sphere_1",
     "name": "Malkuth: The Scrapheap Awakening",
     "image": "/images/locations/1-Malkuth-The Scrapheap Awakening.png",
     "flavor": "“The Vessel stirs in the valley of dead matter. The first breath is thick with the scent of clay.”",
@@ -14,6 +15,7 @@
   {
     "id": "S1_MALKUTH_MIRE",
     "sphere": 1,
+    "terrainDeckType": "sphere_1",
     "name": "Malkuth: The Whispering Mire",
     "image": "/images/locations/1-Malkuth-The Whispering Mire.png",
     "flavor": "“A thick, acidic fog clings to the Golem’s joints. Visibility is low, and every step requires precise thermal management.”",
@@ -26,6 +28,7 @@
   {
     "id": "S1_MALKUTH_ASCENT",
     "sphere": 1,
+    "terrainDeckType": "sphere_1",
     "name": "Malkuth: The Shattered Ascent",
     "image": "/images/locations/1-Malkuth-The Shattered Ascent.png",
     "flavor": "“The path turns vertical. Gravity is a constant enemy, and the Golem must divert all power to its joints.”",
@@ -38,6 +41,7 @@
   {
     "id": "S2_YESOD_REFLECTION",
     "sphere": 2,
+    "terrainDeckType": "sphere_2",
     "name": "Yesod: The Lunar Reflection",
     "image": "/images/locations/2-Yesod-The Lunar Reflection.png",
     "flavor": "“The Vessel gazes into the mirror of the moon. Reality ripples as the subconscious takes form.”",
@@ -50,6 +54,7 @@
   {
     "id": "S2_YESOD_CROSSING",
     "sphere": 2,
+    "terrainDeckType": "sphere_2",
     "name": "Yesod: The Astral Crossing",
     "image": "/images/locations/2-Yesod-The Astral Crossing.png",
     "flavor": "“The silver cord stretches thin. Every movement requires a leap of faith across the void.”",
@@ -62,6 +67,7 @@
   {
     "id": "S2_YESOD_DREAMS",
     "sphere": 2,
+    "terrainDeckType": "sphere_2",
     "name": "Yesod: The Weaving of Dreams",
     "image": "/images/locations/2-Yesod-The Weaving of Dreams.png",
     "flavor": "“The Demiurge weaves a web of illusions. To stall is to become entangled in the threads of sleep.”",
@@ -70,5 +76,44 @@
     "compulsoryFacultyIds": ["fractured_pillar", "unveiled_radiance"],
     "optionalFacultyIds": ["harmonized_memory", "breath_of_dissolution", "supernal_overflow"],
     "effects": [{ "type": "discard_cards_on_undershoot", "count": 1 }]
+  },
+  {
+    "id": "S3_HOD_GEOMETRIC_ORDER",
+    "sphere": 3,
+    "terrainDeckType": "sphere_3",
+    "name": "Hod: The Geometric Order",
+    "image": "/images/locations/3-Hod-The Geometric Order.png",
+    "flavor": "“The Demiurge tests the Vessel with rigid patterns. In the hall of geometry, only symmetry allows the spirit to pass.”",
+    "rule": "Symmetric Vibration: If the total vibration is an Even number, reduce Friction by 1 (Minimum 0). If it is Odd, add +1 Friction.",
+    "rewards": [],
+    "compulsoryPartIds": ["supernal_overflow", "veiled_eye"],
+    "optionalPartIds": ["harmonized_memory", "breath_of_dissolution"],
+    "effects": [{ "type": "friction_by_total_parity", "evenAmount": -1, "oddAmount": 1 }]
+  },
+  {
+    "id": "S3_HOD_UNFORGIVING_LOGIC",
+    "sphere": 3,
+    "terrainDeckType": "sphere_3",
+    "name": "Hod: The Unforgiving Logic",
+    "image": "/images/locations/3-Hod-The Unforgiving Logic.png",
+    "flavor": "“A cold, crystalline architecture where there is no room for hesitation. Here, Apathy is as destructive as Pride.”",
+    "rule": "Binary Consequence: Any Stall (Undershoot) result is considered as a Pride (Overshoot).",
+    "rewards": [],
+    "compulsoryPartIds": ["unveiled_radiance", "reinforced_hull"],
+    "optionalPartIds": ["breath_of_dissolution", "supernal_overflow"],
+    "effects": [{ "type": "undershoot_counts_as_overshoot" }]
+  },
+  {
+    "id": "S3_HOD_THE_FORBIDDEN_PRISM",
+    "sphere": 3,
+    "terrainDeckType": "sphere_3",
+    "name": "Hod: The Forbidden Prism",
+    "image": "/images/locations/3-Hod-The Forbidden Prism.png",
+    "flavor": "“Reason demands the exclusion of the unknown. In the halls of pure intellect, the shifting nature of the Prism is considered heresy.”",
+    "rule": "The Labyrinth of Definition: Prism (Jolly) cards lose their variable nature; they are treated as fixed value 0 and provide no Suit resonance.",
+    "rewards": [],
+    "compulsoryPartIds": ["leadened_shackle", "fractured_pillar"],
+    "optionalPartIds": ["sulfuric_will"],
+    "effects": [{ "type": "prism_fixed_zero" }]
   }
 ]

@@ -4,12 +4,14 @@ import sigilsRaw from "./data/sigils.json";
 import type { PulseSuit } from "../types";
 
 export type FacultyType = "compulsory" | "optional";
+export type TerrainDeckType = "sphere_1" | "sphere_2" | "sphere_3";
 
 export type Effect =
   | { type: "hand_capacity_delta"; amount: number; scope?: "chapter" | "sphere" }
   | { type: "disable_match_refill_on_failure" }
   | { type: "once_per_chapter_extra_card_after_reveal" }
   | { type: "once_per_chapter_fuse_to_zero_after_reveal" }
+  | { type: "once_per_chapter_prevent_first_overshoot_damage" }
   | { type: "pulse_value_delta"; amount: number }
   | { type: "friction_delta_if_played_suit"; suit: Exclude<PulseSuit, "prism">; amount: number }
   | { type: "discard_cards_on_undershoot"; count: number }
@@ -23,6 +25,9 @@ export type Effect =
   | { type: "first_stall_refill_all" }
   | { type: "no_refill_if_played_suit"; suit: Exclude<PulseSuit, "prism"> }
   | { type: "friction_if_no_terrain_match"; amount: number }
+  | { type: "friction_by_total_parity"; evenAmount: number; oddAmount: number }
+  | { type: "undershoot_counts_as_overshoot" }
+  | { type: "prism_fixed_zero" }
   | { type: "swap_friction_cost"; amount: number }
   | { type: "reservoir_count"; count: number };
 
@@ -43,6 +48,7 @@ export type SigilDef = {
 export type LocationDef = {
   id: string;
   sphere: number;
+  terrainDeckType?: TerrainDeckType;
   name: string;
   image?: string;
   flavor: string;
@@ -68,6 +74,7 @@ export type LocationCard = {
   sphereImage?: string;
   flavor: string;
   sphere: number;
+  terrainDeckType: TerrainDeckType;
   compulsory: LocationFaculty[];
   optional: LocationFaculty[];
   rule: string;
@@ -79,6 +86,7 @@ type LocationDefRaw = {
   id: string;
   stage?: number;
   sphere?: number;
+  terrainDeckType?: TerrainDeckType;
   name: string;
   image?: string;
   flavor: string;
@@ -131,6 +139,12 @@ function defaultLocationImagePath(sphere: number, name: string): string | null {
   return `/images/locations/${sphere}-${sphereName}-${locationName}.png`;
 }
 
+function defaultTerrainDeckType(sphere: number): TerrainDeckType {
+  if (sphere >= 3) return "sphere_3";
+  if (sphere === 2) return "sphere_2";
+  return "sphere_1";
+}
+
 function toLocation(def: LocationDefRaw): LocationCard {
   const sphere = def.sphere ?? def.stage ?? 1;
   const compulsory = def.compulsoryFacultyIds ?? def.compulsoryPartIds ?? [];
@@ -143,6 +157,7 @@ function toLocation(def: LocationDefRaw): LocationCard {
     sphereImage: SPHERE_IMAGE_BY_NUMBER[sphere],
     flavor: def.flavor,
     sphere,
+    terrainDeckType: def.terrainDeckType ?? defaultTerrainDeckType(sphere),
     compulsory: compulsory.map((id) => toLocationFaculty(id, "compulsory")),
     optional: optional.map((id) => toLocationFaculty(id, "optional")),
     rule: def.rule,
@@ -153,6 +168,10 @@ function toLocation(def: LocationDefRaw): LocationCard {
 
 export function getLocationsForSphere(sphere: number): LocationCard[] {
   return LOCATIONS_RAW.filter((l) => (l.sphere ?? l.stage ?? 1) === sphere).map(toLocation);
+}
+
+export function getAllLocations(): LocationCard[] {
+  return LOCATIONS_RAW.map(toLocation);
 }
 
 // Back-compat naming: older code calls these "stages".

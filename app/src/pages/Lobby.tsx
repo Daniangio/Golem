@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { createGameAndJoin, playerCount, subscribeOpenGames, type GameSummary } from "../lib/firestoreGames";
 import { useAuthUser } from "../lib/useAuth";
+import type { GameMode } from "../types";
 
 export default function Lobby() {
   const nav = useNavigate();
@@ -9,6 +10,7 @@ export default function Lobby() {
   const uid = user?.uid ?? null;
 
   const [visibility, setVisibility] = useState<"public" | "private">("public");
+  const [gameMode, setGameMode] = useState<GameMode>("campaign");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -50,7 +52,7 @@ export default function Lobby() {
     setBusy(true);
     setMsg(null);
     try {
-      const gameId = await createGameAndJoin(uid, displayName, visibility);
+      const gameId = await createGameAndJoin(uid, displayName, visibility, gameMode);
       nav(`/game/${gameId}`);
     } catch (e) {
       setMsg(String(e));
@@ -88,6 +90,17 @@ export default function Lobby() {
             >
               <option value="public">Public (listed)</option>
               <option value="private">Private (invite-only, v0: join by link requires invite)</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700">Run type</label>
+            <select
+              value={gameMode}
+              onChange={(e) => setGameMode(e.target.value as GameMode)}
+              className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-900 shadow-sm outline-none focus:border-slate-400"
+            >
+              <option value="campaign">Campaign (Sphere by Sphere)</option>
+              <option value="single_location">Single location</option>
             </select>
           </div>
         </div>
@@ -132,7 +145,8 @@ export default function Lobby() {
                         <div>
                           <div className="font-semibold text-slate-800">Room {g.id}</div>
                           <div className="text-xs text-slate-500">
-                            Players: {count}/3 • {full ? "Full" : "Joinable"}
+                            Players: {count}/3 • {full ? "Full" : "Joinable"} •{" "}
+                            {g.gameMode === "single_location" ? "Single location" : "Campaign"}
                           </div>
                         </div>
                         <span className="text-xs font-semibold text-slate-500">Lobby</span>
@@ -162,7 +176,8 @@ export default function Lobby() {
                         <div>
                           <div className="font-semibold text-slate-800">Game {g.id}</div>
                           <div className="text-xs text-slate-500">
-                            Players: {count}/3 • Sphere {chapter} • Pulse {step}
+                            Players: {count}/3 • Sphere {chapter} • Pulse {step} •{" "}
+                            {g.gameMode === "single_location" ? "Single location" : "Campaign"}
                           </div>
                         </div>
                         <span className="text-xs font-semibold text-emerald-700">Active</span>

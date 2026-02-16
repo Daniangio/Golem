@@ -223,3 +223,7 @@ dist/
 # Local env (Firebase config)
 .env.local
 .env.*.local
+
+# Keep frontend source libraries tracked
+!app/src/lib/
+!app/src/lib/**

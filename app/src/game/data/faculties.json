@@ -70,5 +70,11 @@
     "name": "The Harmonized Memory",
     "text": "Resonance with the Akasha. You may perform an Akashic Swap for 0 Friction if the suit of your manifested card matches the suit of the card taken from the Reservoir.",
     "effects": [{ "type": "free_swap_on_suit_resonance" }]
+  },
+  {
+    "id": "reinforced_hull",
+    "name": "The Reinforced Hull",
+    "text": "The first Overshoot damage to the Vessel each Sphere is prevented. The pulse still resolves and all players reset their hands as normal.",
+    "effects": [{ "type": "once_per_chapter_prevent_first_overshoot_damage" }]
   }
 ]
