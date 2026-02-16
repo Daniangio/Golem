@@ -17,12 +17,14 @@ export function LocationChoiceCard({
   votes,
   onVote,
   voteDisabled = false,
+  cardClassName,
 }: {
   sphere: number;
   location: LocationCard;
   votes: PlayerSlot[];
   onVote: () => void;
   voteDisabled?: boolean;
+  cardClassName?: string;
 }) {
   const [flipped, setFlipped] = useState(false);
   const frontImg = imgSrc(location.image);
@@ -32,7 +34,7 @@ export function LocationChoiceCard({
       <button
         type="button"
         onClick={() => setFlipped((v) => !v)}
-        className="group relative h-[320px] w-[220px] rounded-3xl bg-transparent [perspective:1200px] sm:h-[380px] sm:w-[260px]"
+        className={`group relative rounded-3xl bg-transparent [perspective:1200px] ${cardClassName ?? "h-[320px] w-[220px] sm:h-[380px] sm:w-[260px]"}`}
       >
         <div
           className={`absolute inset-0 rounded-3xl transition-transform duration-500 [transform-style:preserve-3d] ${

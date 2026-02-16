@@ -12,6 +12,7 @@ export function PartChoiceCard({
   selected = false,
   unavailable = false,
   disabled = false,
+  compact = false,
   onPick,
 }: {
   part: LocationFaculty;
@@ -19,6 +20,7 @@ export function PartChoiceCard({
   selected?: boolean;
   unavailable?: boolean;
   disabled?: boolean;
+  compact?: boolean;
   onPick: () => void;
 }) {
   return (
@@ -26,7 +28,7 @@ export function PartChoiceCard({
       type="button"
       onClick={onPick}
       disabled={disabled}
-      className={`group relative w-full rounded-2xl bg-gradient-to-b p-4 text-left shadow-xl ring-1 transition ${
+      className={`group relative w-full rounded-2xl bg-gradient-to-b ${compact ? "p-2" : "p-4"} text-left shadow-xl ring-1 transition ${
         selected
           ? "from-emerald-950/70 to-slate-950 ring-emerald-300/35"
           : "from-slate-900 to-slate-950 ring-white/10"
@@ -40,16 +42,16 @@ export function PartChoiceCard({
     >
       <div className="flex items-start justify-between gap-1">
         <div>
-          <div className="text-base text-s font-extrabold text-white">{part.name}</div>
-          <div className="mt-1 text-xs leading-relaxed text-white/75">{part.effect}</div>
+          <div className={`${compact ? "text-[11px]" : "text-base"} text-s font-extrabold text-white`}>{part.name}</div>
+          <div className={`mt-1 ${compact ? "text-[10px] leading-snug" : "text-xs leading-relaxed"} text-white/75`}>{part.effect}</div>
         </div>
         {takenBy.map((s) => (
-          <span key={s} className="rounded-full bg-white/10 px-2 py-1 text-xs font-semibold text-white/80">
+          <span key={s} className={`rounded-full bg-white/10 ${compact ? "px-1.5 py-0.5 text-[10px]" : "px-2 py-1 text-xs"} font-semibold text-white/80`}>
             {seatLabel(s)}
           </span>
         ))}
         <span
-          className={`mt-0.5 rounded-full text-[11px] font-semibold ${
+          className={`mt-0.5 rounded-full ${compact ? "px-1.5 py-0.5 text-[10px]" : "text-[11px]"} font-semibold ${
             part.type === "compulsory" ? "bg-amber-400/20 text-amber-200" : "bg-slate-200/10 text-slate-200"
           }`}
         >

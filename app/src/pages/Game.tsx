@@ -755,6 +755,7 @@ export default function Game() {
             <div className="min-h-0">
                 {game.phase === "choose_location" && (
                   <ChooseLocationPhase
+                    isMobileLayout={isMobileLayout}
                     sphere={carouselCurrentLocation?.sphere ?? sphere}
                     sphereImageUrl={sphereImageUrl}
                     locationOptions={locationOptions}
@@ -771,6 +772,7 @@ export default function Game() {
 
                 {game.phase === "choose_parts" && location && (
                   <ChoosePartsPhase
+                    isMobileLayout={isMobileLayout}
                     location={location}
                     locationImageUrl={locationImageUrl}
                     selectedSeat={selectedSeat}
