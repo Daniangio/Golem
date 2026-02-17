@@ -76,19 +76,46 @@ Secret Selection: Each player plays 1 card from their hand face-down.
 
 Reveal & Resolve: Sum all values ($V_{total}$).
 
-Prism Cards: Values are chosen at resolution. The group selects values within the printed range to best fit the Stability Window.
+Prism Cards: Values are chosen at resolution time to best fit the Stability Window.
 
-Success: $V_{total}$ is within the window. The Vessel advances. All players refill hands.
+Success: $V_{total}$ is within the window. The Vessel advances.
 
-The Overshoot (Pride): $V_{total} >$ Max. The Vessel loses $1$ Divine Spark. All players refill hands. The Vessel advances.
+The Overshoot (Pride): $V_{total} >$ Max. The Vessel loses $1$ Divine Spark (unless prevented). The Vessel advances.
 
-The Stall (Apathy): $V_{total} <$ Min. No Divine Spark is Lost. No one refills hands. The Vessel fails to move; the current Terrain remains for the next Pulse.
+The Stall (Apathy): $V_{total} <$ Min. The Vessel fails to move; the current Terrain remains for the next Pulse.
 
 2. The Resonance Rule
 
-If your card’s suit matches the Resonant Suit of the Terrain, you immediately refill your hand, regardless of success, overshoot, or stall.
+Resonance is evaluated immediately after the pulse result is committed (Success / Stall / Overshoot and any immediate conversion effects).
 
-3. The Akashic Swap
+Default refill behavior:
+
+- Success: all players refill.
+- Overshoot: all players refill.
+- Stall: only players that matched the Resonant Suit refill.
+
+Location and Faculty effects may override this default (for example disabling resonance, restricting success refills, or locking a seat from Success/Resonance refills).
+
+3. Resolution Order (Strict)
+
+For each Pulse, resolve in this order:
+
+1. Determine $V_{total}$ (including Prism choices and value modifiers).
+2. Commit base outcome (Success / Stall / Overshoot), then apply immediate outcome-conversion effects.
+3. Apply Overshoot damage prevention/replacement effects.
+4. Apply friction/heat modifiers from location and faculties.
+5. Resolve draw/refill step (including Resonance, if enabled).
+6. Resolve post-refill discard effects.
+7. Resolve Desperation Surge (if any hand is empty at next selection start).
+8. Advance terrain/step or keep terrain on Stall; then open next pulse.
+
+Important interactions:
+
+- The Resonance Rule is evaluated in step 5, right after outcome commitment.
+- The Fractured Pillar resolves in step 6 (after any Resonance refill).
+- The Anchor of Malkuth lock applies from its first trigger onward, including the triggering pulse: that seat cannot refill through Success or Resonance for the rest of the Chapter.
+
+4. The Akashic Swap
 
 Once per Pulse, the group may perform a Swap:
 
@@ -98,7 +125,7 @@ Friction: Each swap adds +1 Friction.
 
 Surge: At 3 Friction, the Vessel takes 1 Damage and Friction resets to 0.
 
-4. Desperation Surge
+5. Desperation Surge
 
 If a player has 0 cards during the Selection Phase, the Vessel takes 1 Damage. Every player immediately draws back to their Hand Capacity.
 

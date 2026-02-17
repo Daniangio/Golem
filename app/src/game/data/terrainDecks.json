@@ -1,0 +1,65 @@
+{
+  "sphere_1_2": [
+    { "suit": "cinder", "min": 9, "max": 18 },
+    { "suit": "cinder", "min": 10, "max": 19 },
+    { "suit": "cinder", "min": 11, "max": 20 },
+
+    { "suit": "stone", "min": 8, "max": 16 },
+    { "suit": "stone", "min": 9, "max": 17 },
+    { "suit": "stone", "min": 10, "max": 18 },
+
+    { "suit": "ether", "min": 7, "max": 15 },
+    { "suit": "ether", "min": 8, "max": 16 },
+    { "suit": "ether", "min": 9, "max": 17 },
+
+    { "suit": "steam", "min": 8, "max": 17 },
+    { "suit": "steam", "min": 9, "max": 18 },
+    { "suit": "steam", "min": 10, "max": 19 },
+
+    { "suit": "acid", "min": 9, "max": 17 },
+    { "suit": "acid", "min": 10, "max": 18 },
+    { "suit": "acid", "min": 11, "max": 19 }
+  ],
+  "sphere_3_4": [
+    { "suit": "cinder", "min": 12, "max": 19 },
+    { "suit": "cinder", "min": 13, "max": 20 },
+    { "suit": "cinder", "min": 14, "max": 21 },
+
+    { "suit": "stone", "min": 11, "max": 17 },
+    { "suit": "stone", "min": 12, "max": 18 },
+    { "suit": "stone", "min": 13, "max": 19 },
+
+    { "suit": "ether", "min": 10, "max": 16 },
+    { "suit": "ether", "min": 11, "max": 17 },
+    { "suit": "ether", "min": 12, "max": 18 },
+
+    { "suit": "steam", "min": 11, "max": 18 },
+    { "suit": "steam", "min": 12, "max": 19 },
+    { "suit": "steam", "min": 13, "max": 20 },
+
+    { "suit": "acid", "min": 12, "max": 18 },
+    { "suit": "acid", "min": 13, "max": 19 },
+    { "suit": "acid", "min": 14, "max": 20 }
+  ],
+  "sphere_5_6": [
+    { "suit": "ether", "min": 8, "max": 13 },
+    { "suit": "ether", "min": 9, "max": 14 },
+    { "suit": "ether", "min": 10, "max": 15 },
+
+    { "suit": "stone", "min": 10, "max": 16 },
+    { "suit": "stone", "min": 11, "max": 17 },
+    { "suit": "stone", "min": 12, "max": 18 },
+
+    { "suit": "steam", "min": 13, "max": 19 },
+    { "suit": "steam", "min": 14, "max": 20 },
+    { "suit": "steam", "min": 15, "max": 21 },
+
+    { "suit": "acid", "min": 16, "max": 22 },
+    { "suit": "acid", "min": 17, "max": 23 },
+    { "suit": "acid", "min": 18, "max": 24 },
+
+    { "suit": "cinder", "min": 19, "max": 25 },
+    { "suit": "cinder", "min": 20, "max": 26 },
+    { "suit": "cinder", "min": 21, "max": 27 }
+  ]
+}

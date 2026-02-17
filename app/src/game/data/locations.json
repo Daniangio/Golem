@@ -2,7 +2,7 @@
     {
     "id": "S1_MALKUTH_AWAKENING",
     "sphere": 1,
-    "terrainDeckType": "sphere_1",
+    "terrainDeckType": "sphere_1_2",
     "name": "Malkuth: The Scrapheap Awakening",
     "image": "/images/locations/1-Malkuth-The Scrapheap Awakening.png",
     "flavor": "“The Vessel stirs in the valley of dead matter. The first breath is thick with the scent of clay.”",
@@ -15,7 +15,7 @@
   {
     "id": "S1_MALKUTH_MIRE",
     "sphere": 1,
-    "terrainDeckType": "sphere_1",
+    "terrainDeckType": "sphere_1_2",
     "name": "Malkuth: The Whispering Mire",
     "image": "/images/locations/1-Malkuth-The Whispering Mire.png",
     "flavor": "“A thick, acidic fog clings to the Golem’s joints. Visibility is low, and every step requires precise thermal management.”",
@@ -28,7 +28,7 @@
   {
     "id": "S1_MALKUTH_ASCENT",
     "sphere": 1,
-    "terrainDeckType": "sphere_1",
+    "terrainDeckType": "sphere_1_2",
     "name": "Malkuth: The Shattered Ascent",
     "image": "/images/locations/1-Malkuth-The Shattered Ascent.png",
     "flavor": "“The path turns vertical. Gravity is a constant enemy, and the Golem must divert all power to its joints.”",
@@ -41,7 +41,7 @@
   {
     "id": "S2_YESOD_REFLECTION",
     "sphere": 2,
-    "terrainDeckType": "sphere_2",
+    "terrainDeckType": "sphere_1_2",
     "name": "Yesod: The Lunar Reflection",
     "image": "/images/locations/2-Yesod-The Lunar Reflection.png",
     "flavor": "“The Vessel gazes into the mirror of the moon. Reality ripples as the subconscious takes form.”",
@@ -54,7 +54,7 @@
   {
     "id": "S2_YESOD_CROSSING",
     "sphere": 2,
-    "terrainDeckType": "sphere_2",
+    "terrainDeckType": "sphere_1_2",
     "name": "Yesod: The Astral Crossing",
     "image": "/images/locations/2-Yesod-The Astral Crossing.png",
     "flavor": "“The silver cord stretches thin. Every movement requires a leap of faith across the void.”",
@@ -67,20 +67,20 @@
   {
     "id": "S2_YESOD_DREAMS",
     "sphere": 2,
-    "terrainDeckType": "sphere_2",
+    "terrainDeckType": "sphere_1_2",
     "name": "Yesod: The Weaving of Dreams",
     "image": "/images/locations/2-Yesod-The Weaving of Dreams.png",
     "flavor": "“The Demiurge weaves a web of illusions. To stall is to become entangled in the threads of sleep.”",
     "rule": "Entangling Dreams: If the group Stalls (Undershoots), every player must discard one card from their awareness.",
     "rewards": [],
-    "compulsoryFacultyIds": ["fractured_pillar", "unveiled_radiance"],
+    "compulsoryFacultyIds": ["scales_of_geburah", "unveiled_radiance"],
     "optionalFacultyIds": ["harmonized_memory", "breath_of_dissolution", "supernal_overflow"],
     "effects": [{ "type": "discard_cards_on_undershoot", "count": 1 }]
   },
   {
     "id": "S3_HOD_GEOMETRIC_ORDER",
     "sphere": 3,
-    "terrainDeckType": "sphere_3",
+    "terrainDeckType": "sphere_3_4",
     "name": "Hod: The Geometric Order",
     "image": "/images/locations/3-Hod-The Geometric Order.png",
     "flavor": "“The Demiurge tests the Vessel with rigid patterns. In the hall of geometry, only symmetry allows the spirit to pass.”",
@@ -93,7 +93,7 @@
   {
     "id": "S3_HOD_UNFORGIVING_LOGIC",
     "sphere": 3,
-    "terrainDeckType": "sphere_3",
+    "terrainDeckType": "sphere_3_4",
     "name": "Hod: The Unforgiving Logic",
     "image": "/images/locations/3-Hod-The Unforgiving Logic.png",
     "flavor": "“A cold, crystalline architecture where there is no room for hesitation. Here, Apathy is as destructive as Pride.”",
@@ -106,14 +106,53 @@
   {
     "id": "S3_HOD_THE_FORBIDDEN_PRISM",
     "sphere": 3,
-    "terrainDeckType": "sphere_3",
+    "terrainDeckType": "sphere_3_4",
     "name": "Hod: The Forbidden Prism",
     "image": "/images/locations/3-Hod-The Forbidden Prism.png",
     "flavor": "“Reason demands the exclusion of the unknown. In the halls of pure intellect, the shifting nature of the Prism is considered heresy.”",
     "rule": "The Labyrinth of Definition: Prism (Jolly) cards lose their variable nature; they are treated as fixed value 0 and provide no Suit resonance.",
     "rewards": [],
-    "compulsoryPartIds": ["leadened_shackle", "fractured_pillar"],
-    "optionalPartIds": ["sulfuric_will"],
+    "compulsoryPartIds": ["leadened_shackle", "fractured_pillar", "scales_of_geburah"],
+    "optionalPartIds": [],
     "effects": [{ "type": "prism_fixed_zero" }]
+  },
+  {
+    "id": "S4_NETZACH_THICKET_OF_FALSE_VICTORIES",
+    "sphere": 4,
+    "terrainDeckType": "sphere_3_4",
+    "name": "Netzach: The Thicket of False Victories",
+    "image": "/images/locations/4-Netzach-The Thicket of False Victories.png",
+    "flavor": "“Nature thrives on competition, not cooperation. In this thicket, only the dominant faculty finds the strength to persist.”",
+    "rule": "The Hollow Victory: On a Success, only the player who contributed the highest value card refills their hand. Others only refill if they matched the Resonant Suit.",
+    "rewards": ["Ethereal Supply: 1 Mulligan Token."],
+    "compulsoryPartIds": ["leadened_shackle", "lens_of_tiphareth"],
+    "optionalPartIds": ["sulfuric_will", "akashic_lens"],
+    "effects": [{ "type": "success_refill_highest_else_resonance" }]
+  },
+  {
+    "id": "S4_NETZACH_FORGE_OF_UNENDING_DESIRE",
+    "sphere": 4,
+    "terrainDeckType": "sphere_3_4",
+    "name": "Netzach: The Forge of Unending Desire",
+    "image": "/images/locations/4-Netzach-The Forge of Unending Desire.png",
+    "flavor": "“The fire of passion is boundless and destructive. Without the stabilizing flow of the Astral Waters (Ether) or the shifting essence of the Prism, the vessel will melt under its own heat.”",
+    "rule": "Ethereal Containment: At the end of every Pulse, add +1 Friction unless at least two Ether (Blue) or Prism (Jolly) cards were manifested in the sum.",
+    "rewards": ["Ethereal Supply: 1 Mulligan Token."],
+    "compulsoryPartIds": ["vessel_of_dualities", "mercurial_joints", "communion_of_vessels"],
+    "optionalPartIds": [],
+    "effects": [{ "type": "friction_unless_two_ether_or_prism", "amount": 1, "threshold": 2 }]
+  },
+  {
+    "id": "S4_NETZACH_STORM_OF_SHATTERED_SELVES",
+    "sphere": 4,
+    "terrainDeckType": "sphere_3_4",
+    "name": "Netzach: The Storm of Shattered Selves",
+    "image": "/images/locations/4-Netzach-The Storm of Shattered Selves.png",
+    "flavor": "“The storm seeks to dissolve the individual into the whole. To align too closely with the environment or the collective memory is to lose one's distinct awareness.”",
+    "rule": "Shattered Identity: The Resonance Rule does not apply in this location.",
+    "rewards": ["Ethereal Supply: 1 Mulligan Token."],
+    "compulsoryPartIds": ["fractured_pillar", "anchor_of_malkuth"],
+    "optionalPartIds": ["supernal_overflow", "breath_of_dissolution"],
+    "effects": [{ "type": "disable_resonance_refill" }]
   }
 ]

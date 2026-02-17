@@ -14,7 +14,7 @@
   {
     "id": "leadened_shackle",
     "name": "The Leadened Shackle",
-    "text": "Influence of Saturn. The soul is heavy with material history. Your Hand Capacity is reduced by 1.",
+    "text": "Influence of Saturn. The soul is heavy with material history. Your Awareness (Hand Capacity) is reduced by 1.",
     "effects": [{ "type": "hand_capacity_delta", "amount": -1 }]
   },
   {
@@ -26,7 +26,7 @@
   {
     "id": "fractured_pillar",
     "name": "The Fractured Pillar",
-    "text": "Instability in Yesod. If the group Stalls (Undershoots), you must discard an additional card from your Hand.",
+    "text": "Instability in Yesod. If the group Stalls (Undershoots), this resolves after draw/refill effects: you first apply any refill (including Resonance), then discard 1 additional card from your Hand.",
     "effects": [{ "type": "discard_cards_on_undershoot", "count": 1 }]
   },
   {
@@ -76,5 +76,32 @@
     "name": "The Reinforced Hull",
     "text": "The first Overshoot damage to the Vessel each Sphere is prevented. The pulse still resolves and all players reset their hands as normal.",
     "effects": [{ "type": "once_per_chapter_prevent_first_overshoot_damage" }]
+  },
+  {
+    "id": "scales_of_geburah",
+    "name": "The Scales of Geburah",
+    "text": "Judgment and Justice. Passive: Your manifested cards always count as +3 value. If the group Overshoots (Pride) and your manifested value is tied for the highest, the Golem takes 2 Damage instead of 1.",
+    "effects": [
+      { "type": "pulse_value_delta", "amount": 3 },
+      { "type": "high_value_double_damage_risk" }
+    ]
+  },
+  {
+    "id": "lens_of_tiphareth",
+    "name": "The Lens of Tiphareth",
+    "text": "The light of beauty. Active (Actions phase): swap your manifested card with one card from your Hand. If used, you skip the next Pulse (you cannot manifest a card in that Pulse).",
+    "effects": [{ "type": "swap_and_skip_turn" }]
+  },
+  {
+    "id": "anchor_of_malkuth",
+    "name": "The Anchor of Malkuth",
+    "text": "Grounding in matter. Passive: if the group Stalls by 3 or less below the Window Min, treat the pulse as Success. From the first trigger onward (including the triggering pulse), you cannot refill through Success or Resonance for the rest of the Chapter. Overshoot and Desperation refills still apply.",
+    "effects": [{ "type": "prevent_stall_limited_refill" }]
+  },
+  {
+    "id": "vessel_of_dualities",
+    "name": "The Vessel of Dualities",
+    "text": "The balance of opposites. Passive: If the total sum is exactly the median of the Stability Window (rounded down), reduce Friction to 0. If the sum is exactly the Window's Max or Min, the Golem immediately generates +1 Friction.",
+    "effects": [{ "type": "median_heal_boundary_friction" }]
   }
 ]

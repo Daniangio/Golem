@@ -1,17 +1,20 @@
 import locationsRaw from "./data/locations.json";
 import facultiesRaw from "./data/faculties.json";
 import sigilsRaw from "./data/sigils.json";
-import type { PulseSuit } from "../types";
+import type { PulseSuit, TerrainDeckType } from "../types";
+export type { TerrainDeckType } from "../types";
 
 export type FacultyType = "compulsory" | "optional";
-export type TerrainDeckType = "sphere_1" | "sphere_2" | "sphere_3";
-
 export type Effect =
   | { type: "hand_capacity_delta"; amount: number; scope?: "chapter" | "sphere" }
   | { type: "disable_match_refill_on_failure" }
   | { type: "once_per_chapter_extra_card_after_reveal" }
   | { type: "once_per_chapter_fuse_to_zero_after_reveal" }
   | { type: "once_per_chapter_prevent_first_overshoot_damage" }
+  | { type: "high_value_double_damage_risk" }
+  | { type: "swap_and_skip_turn" }
+  | { type: "prevent_stall_limited_refill" }
+  | { type: "median_heal_boundary_friction" }
   | { type: "pulse_value_delta"; amount: number }
   | { type: "friction_delta_if_played_suit"; suit: Exclude<PulseSuit, "prism">; amount: number }
   | { type: "discard_cards_on_undershoot"; count: number }
@@ -29,7 +32,10 @@ export type Effect =
   | { type: "undershoot_counts_as_overshoot" }
   | { type: "prism_fixed_zero" }
   | { type: "swap_friction_cost"; amount: number }
-  | { type: "reservoir_count"; count: number };
+  | { type: "reservoir_count"; count: number }
+  | { type: "success_refill_highest_else_resonance" }
+  | { type: "friction_unless_two_ether_or_prism"; amount: number; threshold?: number }
+  | { type: "disable_resonance_refill" };
 
 export type FacultyDef = {
   id: string;
@@ -140,9 +146,9 @@ function defaultLocationImagePath(sphere: number, name: string): string | null {
 }
 
 function defaultTerrainDeckType(sphere: number): TerrainDeckType {
-  if (sphere >= 3) return "sphere_3";
-  if (sphere === 2) return "sphere_2";
-  return "sphere_1";
+  if (sphere >= 5) return "sphere_5_6";
+  if (sphere >= 3) return "sphere_3_4";
+  return "sphere_1_2";
 }
 
 function toLocation(def: LocationDefRaw): LocationCard {

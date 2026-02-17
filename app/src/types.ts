@@ -38,7 +38,13 @@ export type TerrainCard = {
   min: number;
   max: number;
 };
-export type TerrainDeckType = "sphere_1" | "sphere_2" | "sphere_3";
+export type TerrainDeckType =
+  | "sphere_1_2"
+  | "sphere_3_4"
+  | "sphere_5_6"
+  | "sphere_1"
+  | "sphere_2"
+  | "sphere_3";
 
 export type PulsePhase = "pre_selection" | "selection" | "actions";
 
@@ -102,10 +108,13 @@ export type GameDoc = {
     offered?: PulseCard;
     status: "awaiting_offer" | "awaiting_return";
   } | null;
+  skipThisPulse?: Partial<Record<PlayerSlot, boolean>>;
+  skipNextPulse?: Partial<Record<PlayerSlot, boolean>>;
 
   terrainDeck?: TerrainCard[];
   terrainDeckType?: TerrainDeckType;
-  terrainIndex?: number; // 0-4
+  terrainIndex?: number; // 0..terrainDeck.length-1
+  terrainCardsPerRun?: number; // how many cards to draw from the selected 15-card terrain deck (default 5)
   pulsePhase?: PulsePhase;
   played?: PlayedCards;
   chapterAbilityUsed?: ChapterAbilityUsed; // once-per-chapter part abilities

@@ -23,6 +23,7 @@ import {
   subscribeGame,
   swapWithReservoir,
   useFuse,
+  useLensOfTiphareth,
   type GameSummary,
 } from "../lib/firestoreGames";
 import { useAuthUser } from "../lib/useAuth";
@@ -460,7 +461,11 @@ export default function Game() {
   const selectedCard = selectedHand.find((c) => c.id === selectedCardId) ?? null;
 
   const played = game.played ?? {};
-  const haveAllPlayed = SLOTS.every((s) => Boolean(players[s]) && Boolean(played[s]?.card));
+  const skipThisPulse = game.skipThisPulse ?? {};
+  const selectedSeatSkipped = Boolean(skipThisPulse[selectedSeat]);
+  const haveAllPlayed = SLOTS.every(
+    (s) => Boolean(players[s]) && (Boolean(skipThisPulse[s]) || Boolean(played[s]?.card))
+  );
 
   const discardAll = game.pulseDiscard ?? [];
   const lastDiscarded = game.lastDiscarded ?? [];
@@ -502,11 +507,13 @@ export default function Game() {
   const selectedHasEffect = (type: string) => selectedSeatEffects.some((e) => e && e.type === type);
 
   const preSelectionSeats = SLOTS.filter((s) => seatHasEffect(s, "hide_terrain_until_played"));
-  const preSelectionDone = preSelectionSeats.every((s) => Boolean(played[s]?.card));
+  const preSelectionDone = preSelectionSeats.every((s) => skipThisPulse[s] || Boolean(played[s]?.card));
 
   const ABILITY_EXTRA_CARD = "once_per_chapter_extra_card_after_reveal";
   const ABILITY_FUSE = "once_per_chapter_fuse_to_zero_after_reveal";
   const ABILITY_OVERSHOOT_SHIELD = "once_per_chapter_prevent_first_overshoot_damage";
+  const ABILITY_TIPHARETH_SWAP = "swap_and_skip_turn";
+  const ABILITY_ANCHOR = "prevent_stall_limited_refill";
 
   const canPlayFromSelected = Boolean(
     gameId &&
@@ -514,6 +521,7 @@ export default function Game() {
       canActForSelected &&
       actingSeat &&
       actingSeat === selectedSeat &&
+      !selectedSeatSkipped &&
       (pulsePhase === "selection"
         ? !exchangePending && (!preSelectionSeats.length || preSelectionDone)
         : pulsePhase === "pre_selection"
@@ -530,6 +538,16 @@ export default function Game() {
       Boolean(played[selectedSeat]?.card) &&
       !Boolean(played[selectedSeat]?.extraCard) &&
       !(game.chapterAbilityUsed?.[selectedSeat]?.[ABILITY_EXTRA_CARD] ?? false)
+  );
+  const canTipharethSwapFromSelected = Boolean(
+    gameId &&
+      uid &&
+      actingSeat &&
+      actingSeat === selectedSeat &&
+      selectedHasEffect(ABILITY_TIPHARETH_SWAP) &&
+      pulsePhase === "actions" &&
+      Boolean(played[selectedSeat]?.card) &&
+      !Boolean(game.skipNextPulse?.[selectedSeat])
   );
 
   const fuseSeat = actingSeat && seatHasEffect(actingSeat, ABILITY_FUSE) ? actingSeat : null;
@@ -583,6 +601,10 @@ export default function Game() {
     if (selectedHasEffect(ABILITY_OVERSHOOT_SHIELD)) {
       const used = Boolean(selectedAbilityUsed[ABILITY_OVERSHOOT_SHIELD]);
       return { label: used ? "Shield used" : "Shield ready", tone: used ? "muted" : "good" } as const;
+    }
+    if (selectedHasEffect(ABILITY_ANCHOR)) {
+      const locked = Boolean(selectedAbilityUsed[ABILITY_ANCHOR]);
+      return { label: locked ? "Anchor lock active" : "Anchor stable", tone: locked ? "muted" : "good" } as const;
     }
     return { label: "Passive", tone: "muted" } as const;
   })();
@@ -932,6 +954,13 @@ export default function Game() {
                 await playAuxBatteryCard(gameId, uid, actingSeat, selectedCardId);
               })
             }
+            canSwapSkipSelected={Boolean(selectedCardId && canTipharethSwapFromSelected)}
+            onSwapSkipSelected={() =>
+              void guarded(async () => {
+                if (!uid || !gameId || !actingSeat || !selectedCardId) return;
+                await useLensOfTiphareth(gameId, uid, actingSeat, selectedCardId);
+              })
+            }
             handCount={selectedHandRaw.length}
             busy={busy}
             icons={
@@ -970,6 +999,8 @@ export default function Game() {
             hiddenNote={
               !canSeeSelectedHand && selectedUid ? (
                 <>Viewing another player — cards are hidden.</>
+              ) : selectedSeatSkipped ? (
+                <>This seat skips this Pulse.</>
               ) : null
             }
           />

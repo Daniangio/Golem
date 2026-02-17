@@ -1,5 +1,6 @@
 import type { PulseCard, PulseSuit, TerrainCard, TerrainDeckType } from "../../types";
-import { randomInt, shuffleInPlace } from "./random";
+import terrainDecksRaw from "../../game/data/terrainDecks.json";
+import { shuffleInPlace } from "./random";
 
 export function makePulseDeck(): PulseCard[] {
   const suits: Exclude<PulseSuit, "prism">[] = ["cinder", "stone", "ether", "steam", "acid"];
@@ -17,31 +18,40 @@ export function makePulseDeck(): PulseCard[] {
 }
 
 export function defaultTerrainDeckTypeForSphere(sphere: number): TerrainDeckType {
-  if (sphere >= 3) return "sphere_3";
-  if (sphere === 2) return "sphere_2";
-  return "sphere_1";
+  if (sphere >= 5) return "sphere_5_6";
+  if (sphere >= 3) return "sphere_3_4";
+  return "sphere_1_2";
 }
 
-export function makeTerrainDeck(deckType: TerrainDeckType): TerrainCard[] {
-  const suits: TerrainCard["suit"][] = ["cinder", "stone", "ether", "steam", "acid"];
-  const cfgByType: Record<
-    TerrainDeckType,
-    { count: number; minFloor: number; maxCeil: number; widthMin: number; widthMax: number }
-  > = {
-    sphere_1: { count: 5, minFloor: 8, maxCeil: 22, widthMin: 5, widthMax: 9 },
-    sphere_2: { count: 5, minFloor: 9, maxCeil: 23, widthMin: 4, widthMax: 8 },
-    sphere_3: { count: 5, minFloor: 10, maxCeil: 24, widthMin: 4, widthMax: 7 },
-  };
-  const cfg = cfgByType[deckType];
-  const deck: TerrainCard[] = [];
-  for (let i = 0; i < cfg.count; i += 1) {
-    const suit = suits[randomInt(suits.length)]!;
-    const width = cfg.widthMin + randomInt(cfg.widthMax - cfg.widthMin + 1);
-    const min = cfg.minFloor + randomInt(cfg.maxCeil - cfg.minFloor - width + 1);
-    const max = min + width;
-    deck.push({ id: `t:${deckType}:${i}:${suit}:${min}-${max}`, suit, min, max });
-  }
-  return deck;
+type TerrainDeckEntry = Pick<TerrainCard, "suit" | "min" | "max">;
+type CanonicalTerrainDeckType = "sphere_1_2" | "sphere_3_4" | "sphere_5_6";
+
+const TERRAIN_DECKS = terrainDecksRaw as Record<CanonicalTerrainDeckType, TerrainDeckEntry[]>;
+
+function canonicalTerrainDeckType(deckType: TerrainDeckType): CanonicalTerrainDeckType {
+  if (deckType === "sphere_1" || deckType === "sphere_2") return "sphere_1_2";
+  if (deckType === "sphere_3") return "sphere_3_4";
+  return deckType;
+}
+
+export function makeTerrainDeck(deckType: TerrainDeckType, deckSize = 5): TerrainCard[] {
+  const canonicalType = canonicalTerrainDeckType(deckType);
+  const source = TERRAIN_DECKS[canonicalType] ?? [];
+  if (source.length === 0) return [];
+
+  const count = Math.max(1, Math.min(deckSize, source.length));
+  const indexes = Array.from({ length: source.length }, (_, i) => i);
+  shuffleInPlace(indexes);
+
+  return indexes.slice(0, count).map((sourceIndex, drawIndex) => {
+    const card = source[sourceIndex]!;
+    return {
+      id: `t:${canonicalType}:${drawIndex}:${sourceIndex}:${card.suit}:${card.min}-${card.max}`,
+      suit: card.suit,
+      min: card.min,
+      max: card.max,
+    };
+  });
 }
 
 export function drawCardsWithReshuffle<T>(

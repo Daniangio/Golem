@@ -29,12 +29,21 @@ export function pulseCardValueOptions(card: PulseCard, effects: any[] = []): num
 }
 
 export function bestFitTotal(valueOptionsByCard: number[][], min: number, max: number): number {
+  return bestFitSelection(valueOptionsByCard, min, max).total;
+}
+
+export function bestFitSelection(
+  valueOptionsByCard: number[][],
+  min: number,
+  max: number
+): { total: number; chosenValues: number[] } {
   const mid = (min + max) / 2;
   let bestTotal = 0;
   let bestDist = Number.POSITIVE_INFINITY;
   let bestMid = Number.POSITIVE_INFINITY;
+  let bestChosen: number[] = [];
 
-  function recur(i: number, sum: number) {
+  function recur(i: number, sum: number, chosen: number[]) {
     if (i >= valueOptionsByCard.length) {
       const dist = sum < min ? min - sum : sum > max ? sum - max : 0;
       const midDist = Math.abs(sum - mid);
@@ -42,14 +51,17 @@ export function bestFitTotal(valueOptionsByCard: number[][], min: number, max: n
         bestDist = dist;
         bestMid = midDist;
         bestTotal = sum;
+        bestChosen = [...chosen];
       }
       return;
     }
     for (const v of valueOptionsByCard[i]!) {
-      recur(i + 1, sum + v);
+      chosen.push(v);
+      recur(i + 1, sum + v, chosen);
+      chosen.pop();
     }
   }
 
-  recur(0, 0);
-  return bestTotal;
+  recur(0, 0, []);
+  return { total: bestTotal, chosenValues: bestChosen };
 }

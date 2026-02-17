@@ -18,6 +18,8 @@ export function PlayerBottomPanel({
   onPlaySelected,
   canOverflowSelected,
   onOverflowSelected,
+  canSwapSkipSelected,
+  onSwapSkipSelected,
   busy,
   icons,
   hiddenNote,
@@ -36,6 +38,8 @@ export function PlayerBottomPanel({
   onPlaySelected: () => void;
   canOverflowSelected: boolean;
   onOverflowSelected: () => void;
+  canSwapSkipSelected: boolean;
+  onSwapSkipSelected: () => void;
   busy: boolean;
   icons?: React.ReactNode;
   hiddenNote?: React.ReactNode;
@@ -75,6 +79,16 @@ export function PlayerBottomPanel({
                     className="absolute left-1/2 top-0 -translate-x-1/2 rounded-full bg-emerald-400 px-3 py-1 text-[11px] font-extrabold text-slate-950 shadow disabled:opacity-40"
                   >
                     Overflow
+                  </button>
+                )}
+                {selected && canSwapSkipSelected && (
+                  <button
+                    type="button"
+                    onClick={onSwapSkipSelected}
+                    disabled={busy}
+                    className="absolute left-1/2 top-0 -translate-x-1/2 rounded-full bg-amber-300 px-3 py-1 text-[11px] font-extrabold text-slate-950 shadow disabled:opacity-40"
+                  >
+                    Transmute
                   </button>
                 )}
               </div>

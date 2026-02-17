@@ -33,7 +33,7 @@ import {
   makeTerrainDeck,
 } from "./game/decks";
 import { randomInt, shuffleInPlace } from "./game/random";
-import { bestFitTotal, pulseCardValueOptions } from "./game/scoring";
+import { bestFitSelection, pulseCardValueOptions } from "./game/scoring";
 
 const GAMES = collection(db, "games");
 
@@ -591,7 +591,8 @@ export async function confirmParts(gameId: string, hostUid: string) {
     const reservoir2 = reservoirCount >= 2 ? (deck.shift() ?? null) : null;
 
     const terrainDeckType = location.terrainDeckType ?? defaultTerrainDeckTypeForSphere(location.sphere ?? 1);
-    const terrainDeck = makeTerrainDeck(terrainDeckType);
+    const terrainCardsPerRun = Math.max(1, Number(data.terrainCardsPerRun ?? 5));
+    const terrainDeck = makeTerrainDeck(terrainDeckType, terrainCardsPerRun);
     const preSeats = preSelectionSeats({ locationId: data.locationId, partPicks: picks });
     const exchangeFrom = mandatoryExchangeSeat({ locationId: data.locationId, partPicks: picks });
     const exchange = !preSeats.length && exchangeFrom ? { from: exchangeFrom, status: "awaiting_offer" as const } : null;
@@ -608,10 +609,13 @@ export async function confirmParts(gameId: string, hostUid: string) {
       baseHandCapacity,
       terrainDeck,
       terrainDeckType,
+      terrainCardsPerRun,
       terrainIndex: 0,
       step: 1,
       pulsePhase: preSeats.length ? "pre_selection" : "selection",
       exchange,
+      skipThisPulse: {},
+      skipNextPulse: {},
       played: {},
       chapterAbilityUsed: {},
       chapterGlobalUsed: {},
@@ -634,6 +638,8 @@ export async function playCard(gameId: string, actorUid: string, seat: PlayerSlo
     const pulsePhase = (data.pulsePhase ?? "selection") as any;
     if (pulsePhase !== "selection" && pulsePhase !== "pre_selection") throw new Error("Not in selection phase.");
     if (pulsePhase === "selection" && data.exchange) throw new Error("Resolve the Communion exchange first.");
+    const skipThisPulse = data.skipThisPulse ?? {};
+    if (skipThisPulse[seat]) throw new Error("This seat skips this Pulse.");
 
     const seatUid = data.players?.[seat];
     if (!seatUid) throw new Error("Seat is empty.");
@@ -658,9 +664,10 @@ export async function playCard(gameId: string, actorUid: string, seat: PlayerSlo
       ...(hasEffect(effectsForSeat(data, seat), "reveal_card_during_selection") ? { revealedDuringSelection: true } : {}),
     };
 
-    const full = SLOTS.every((s) => Boolean(data.players?.[s]) && Boolean(played[s]));
+    const activeSeats = SLOTS.filter((s) => Boolean(data.players?.[s]) && !skipThisPulse[s]);
+    const full = activeSeats.every((s) => Boolean(played[s]));
     const preSeats = preSelectionSeats({ locationId: data.locationId, partPicks: data.partPicks });
-    const preDone = preSeats.every((s) => Boolean(played[s]));
+    const preDone = preSeats.every((s) => skipThisPulse[s] || Boolean(played[s]));
 
     if (pulsePhase === "pre_selection" && preSeats.length && !preSeats.includes(seat)) {
       throw new Error("That seat can't play before the terrain is revealed.");
@@ -828,6 +835,56 @@ export async function playAuxBatteryCard(gameId: string, actorUid: string, seat:
   });
 }
 
+export async function useLensOfTiphareth(gameId: string, actorUid: string, seat: PlayerSlot, cardId: string) {
+  const gameRef = doc(db, "games", gameId);
+
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(gameRef);
+    if (!snap.exists()) throw new Error("Game not found.");
+    const data = snap.data() as GameDoc;
+
+    if (data.status !== "active") throw new Error("Game is not active.");
+    if (data.phase !== "play") throw new Error("Not in play phase.");
+    if ((data.pulsePhase ?? "selection") !== "actions") throw new Error("Only after reveal.");
+
+    const seatUid = data.players?.[seat];
+    if (!seatUid) throw new Error("Seat is empty.");
+    const isBot = isBotUid(seatUid);
+    const isHost = data.createdBy === actorUid;
+    if (seatUid !== actorUid && !(isHost && isBot)) throw new Error("You can't act for that seat.");
+
+    const abilityKey = "swap_and_skip_turn";
+    if (!hasEffect(effectsForSeat(data, seat), abilityKey)) {
+      throw new Error("That seat cannot use this action.");
+    }
+
+    const skipNextPulse = { ...(data.skipNextPulse ?? {}) };
+    if (skipNextPulse[seat]) throw new Error("This action was already used for the next Pulse.");
+
+    const played = { ...(data.played ?? {}) } as any;
+    const entry = played[seat];
+    if (!entry?.card) throw new Error("Seat has not played a card.");
+
+    const hands = { ...(data.hands ?? {}) } as SeatHands;
+    const hand = [...(hands[seat] ?? [])];
+    const idx = hand.findIndex((c) => c.id === cardId);
+    if (idx < 0) throw new Error("Card not found in hand.");
+
+    const handCard = hand[idx]!;
+    hand[idx] = entry.card;
+    played[seat] = { ...entry, card: handCard };
+    hands[seat] = hand;
+    skipNextPulse[seat] = true;
+
+    tx.update(gameRef, {
+      hands,
+      played,
+      skipNextPulse,
+      updatedAt: serverTimestamp(),
+    });
+  });
+}
+
 export async function useFuse(gameId: string, actorUid: string, seat: PlayerSlot, targetSeat: PlayerSlot) {
   const gameRef = doc(db, "games", gameId);
 
@@ -955,8 +1012,12 @@ export async function endActions(gameId: string, actorUid: string) {
     const terrain = terrainDeck[terrainIndex];
     if (!terrain) throw new Error("No terrain card.");
 
+    const skipThisPulse = { ...(data.skipThisPulse ?? {}) };
+    const activeSeats = SLOTS.filter((seat) => Boolean(data.players?.[seat]) && !skipThisPulse[seat]);
+    if (activeSeats.length === 0) throw new Error("No active seats for this Pulse.");
+
     const played = data.played ?? {};
-    for (const seat of SLOTS) {
+    for (const seat of activeSeats) {
       if (!played[seat]?.card) throw new Error("Not all seats played.");
     }
 
@@ -965,31 +1026,43 @@ export async function endActions(gameId: string, actorUid: string) {
     const chapterAbilityUsed = ensureChapterAbilityUsed(data);
     const chapterGlobalUsed = ensureChapterGlobalUsed(data);
 
-	    const options: number[][] = [];
-	    for (const seat of SLOTS) {
-	      const entry = played[seat]!;
-	      const seatEffects = effectsForSeat(data, seat);
+    const options: number[][] = [];
+    const optionSeat: PlayerSlot[] = [];
+    for (const seat of activeSeats) {
+      const entry = played[seat]!;
+      const seatEffects = effectsForSeat(data, seat);
       const prismLockedToZero = hasEffect(seatEffects, "prism_fixed_zero");
-	      const valueDelta = seatEffects
-	        .filter((e) => e?.type === "pulse_value_delta")
-	        .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+      const valueDelta = seatEffects
+        .filter((e) => e?.type === "pulse_value_delta")
+        .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
 
-	      if (typeof entry.valueOverride === "number") {
-	        options.push([entry.valueOverride]);
-	      } else {
+      if (typeof entry.valueOverride === "number") {
+        options.push([entry.valueOverride]);
+      } else {
         const cardOptions = pulseCardValueOptions(entry.card, seatEffects);
         options.push(
           prismLockedToZero && entry.card.suit === "prism" ? [0] : cardOptions.map((v) => v + valueDelta)
         );
-	      }
+      }
+      optionSeat.push(seat);
       if (entry.extraCard) {
         const extraOptions = pulseCardValueOptions(entry.extraCard, seatEffects);
         options.push(
           prismLockedToZero && entry.extraCard.suit === "prism" ? [0] : extraOptions.map((v) => v + valueDelta)
         );
+        optionSeat.push(seat);
       }
-	    }
-    const total = bestFitTotal(options, terrain.min, terrain.max);
+    }
+    const selection = bestFitSelection(options, terrain.min, terrain.max);
+    const total = selection.total;
+    const seatManifestedValues: Partial<Record<PlayerSlot, number[]>> = {};
+    selection.chosenValues.forEach((value, index) => {
+      const seat = optionSeat[index];
+      if (!seat) return;
+      const prev = seatManifestedValues[seat] ?? [];
+      prev.push(value);
+      seatManifestedValues[seat] = prev;
+    });
 
     let result: "success" | "undershoot" | "overshoot" = "success";
     if (total < terrain.min) result = "undershoot";
@@ -997,6 +1070,17 @@ export async function endActions(gameId: string, actorUid: string) {
 
     if (result === "undershoot" && locationEffects.some((e) => e?.type === "undershoot_counts_as_overshoot")) {
       result = "overshoot";
+    }
+
+    const anchorEffectKey = "prevent_stall_limited_refill";
+    if (result === "undershoot" && terrain.min - total <= 3) {
+      const anchorSeats = activeSeats.filter((seat) => hasEffect(effectsForSeat(data, seat), anchorEffectKey));
+      if (anchorSeats.length) {
+        for (const seat of anchorSeats) {
+          chapterAbilityUsed[seat] = { ...(chapterAbilityUsed[seat] ?? {}), [anchorEffectKey]: true };
+        }
+        result = "success";
+      }
     }
 
     let hp = data.golem?.hp ?? 5;
@@ -1010,7 +1094,18 @@ export async function endActions(gameId: string, actorUid: string) {
       if (shieldSeat) {
         chapterAbilityUsed[shieldSeat] = { ...(chapterAbilityUsed[shieldSeat] ?? {}), [shieldEffectKey]: true };
       } else {
-        hp = Math.max(0, hp - 1);
+        let damage = 1;
+        const highRiskSeats = activeSeats.filter((seat) => hasEffect(effectsForSeat(data, seat), "high_value_double_damage_risk"));
+        if (highRiskSeats.length) {
+          const maxima = activeSeats.map((seat) => Math.max(...(seatManifestedValues[seat] ?? [Number.NEGATIVE_INFINITY])));
+          const overallMax = Math.max(...maxima);
+          const hasTopRisk = highRiskSeats.some((seat) => {
+            const seatMax = Math.max(...(seatManifestedValues[seat] ?? [Number.NEGATIVE_INFINITY]));
+            return Number.isFinite(seatMax) && seatMax === overallMax;
+          });
+          if (hasTopRisk) damage = 2;
+        }
+        hp = Math.max(0, hp - damage);
       }
     }
 
@@ -1020,7 +1115,7 @@ export async function endActions(gameId: string, actorUid: string) {
 
     // Discard played cards (public v0).
     const discardedThisPulse: PulseCard[] = [];
-    for (const seat of SLOTS) {
+    for (const seat of activeSeats) {
       const entry = played[seat]!;
       discard.push(entry.card);
       discardedThisPulse.push(entry.card);
@@ -1030,7 +1125,7 @@ export async function endActions(gameId: string, actorUid: string) {
       }
     }
 
-    const anyMatchedTerrain = SLOTS.some((seat) => {
+    const anyMatchedTerrain = activeSeats.some((seat) => {
       const entry = played[seat]!;
       const suits = [entry.card.suit, entry.extraCard?.suit].filter(Boolean) as PulseSuit[];
       return suits.some((s) => s !== "prism" && s === terrain.suit);
@@ -1049,7 +1144,7 @@ export async function endActions(gameId: string, actorUid: string) {
     }
 
     // Faculty rule: friction delta when playing a specific suit.
-    for (const seat of SLOTS) {
+    for (const seat of activeSeats) {
       const entry = played[seat]!;
       const frictionEffects = effectsForSeat(data, seat).filter((e) => e?.type === "friction_delta_if_played_suit");
       for (const e of frictionEffects) {
@@ -1060,6 +1155,26 @@ export async function endActions(gameId: string, actorUid: string) {
         }
       }
     }
+
+    const frictionUnlessEtherOrPrism = locationEffects.find((e) => e?.type === "friction_unless_two_ether_or_prism") as any;
+    if (frictionUnlessEtherOrPrism) {
+      const threshold = Math.max(1, Number(frictionUnlessEtherOrPrism.threshold) || 2);
+      const amount = Number(frictionUnlessEtherOrPrism.amount) || 0;
+      const etherOrPrismCount = activeSeats.reduce((count, seat) => {
+        const entry = played[seat]!;
+        const suits = [entry.card.suit, entry.extraCard?.suit].filter(Boolean) as PulseSuit[];
+        return count + suits.filter((s) => s === "ether" || s === "prism").length;
+      }, 0);
+      if (etherOrPrismCount < threshold) heat += amount;
+    }
+
+    const dualityEffect = activeSeats.some((seat) => hasEffect(effectsForSeat(data, seat), "median_heal_boundary_friction"));
+    if (dualityEffect) {
+      const median = Math.floor((terrain.min + terrain.max) / 2);
+      if (total === median) heat = 0;
+      if (total === terrain.min || total === terrain.max) heat += 1;
+    }
+
     heat = Math.max(0, heat);
     if (heat >= 3) {
       hp = Math.max(0, hp - 1);
@@ -1087,7 +1202,71 @@ export async function endActions(gameId: string, actorUid: string) {
       return;
     };
 
-    // Part rule: discard extra cards on undershoot (e.g., Cracked Pistons).
+    const resonanceDisabled = locationEffects.some((e) => e?.type === "disable_resonance_refill");
+    const matchesTerrainSuit = (seat: PlayerSlot) => {
+      if (resonanceDisabled) return false;
+      if (hasEffect(effectsForSeat(data, seat), "disable_match_refill_on_failure")) return false;
+      const entry = played[seat];
+      if (!entry?.card) return false;
+      const suits = [entry.card.suit, entry.extraCard?.suit].filter(Boolean) as PulseSuit[];
+      return suits.some((s) => s !== "prism" && s === terrain.suit);
+    };
+
+    const noRefillSuitEffects = locationEffects.filter((e) => e?.type === "no_refill_if_played_suit") as any[];
+    const blocksRefill = (seat: PlayerSlot) => {
+      if (!noRefillSuitEffects.length) return false;
+      const entry = played[seat];
+      if (!entry?.card) return false;
+      return noRefillSuitEffects.some((e) => e?.suit && seatPlayedSuit(entry, e.suit));
+    };
+
+    const warmupActive = locationEffects.some((e) => e?.type === "first_stall_refill_all");
+    const warmupAvailable = warmupActive && !chapterGlobalUsed.first_stall_refill_all;
+    const treatUndershootAsRefillAll = result === "undershoot" && warmupAvailable;
+    if (treatUndershootAsRefillAll) chapterGlobalUsed.first_stall_refill_all = true;
+
+    const anchorLocked = (seat: PlayerSlot) => Boolean(chapterAbilityUsed?.[seat]?.[anchorEffectKey]);
+    const refillIfAllowed = (seat: PlayerSlot, source: "success" | "resonance" | "other") => {
+      if ((source === "success" || source === "resonance") && anchorLocked(seat)) return;
+      if (blocksRefill(seat)) return;
+      refill(seat);
+    };
+
+    const successHighestResonance = locationEffects.some((e) => e?.type === "success_refill_highest_else_resonance");
+
+    // Draw step:
+    // - Success: everyone refills.
+    // - Overshoot: everyone refills (damage still applies).
+    // - Undershoot: only matching-suit players refill (unless effects disable Resonance).
+    if (result === "success") {
+      if (successHighestResonance) {
+        const maxima = activeSeats.map((seat) => Math.max(...(seatManifestedValues[seat] ?? [Number.NEGATIVE_INFINITY])));
+        const overallMax = Math.max(...maxima);
+        const topSeats = activeSeats.filter((seat) => {
+          const seatMax = Math.max(...(seatManifestedValues[seat] ?? [Number.NEGATIVE_INFINITY]));
+          return Number.isFinite(seatMax) && seatMax === overallMax;
+        });
+
+        for (const seat of SLOTS) {
+          if (topSeats.includes(seat)) {
+            refillIfAllowed(seat, "success");
+          } else if (matchesTerrainSuit(seat)) {
+            refillIfAllowed(seat, "resonance");
+          }
+        }
+      } else {
+        for (const seat of SLOTS) refillIfAllowed(seat, "success");
+      }
+    } else if (result === "overshoot" || treatUndershootAsRefillAll) {
+      for (const seat of SLOTS) refillIfAllowed(seat, "other");
+    } else {
+      for (const seat of SLOTS) {
+        if (matchesTerrainSuit(seat)) refillIfAllowed(seat, "resonance");
+      }
+    }
+
+    // Part rule: discard extra cards on undershoot (e.g., Fractured Pillar).
+    // This resolves after draw/refill effects (including Resonance).
     if (result === "undershoot") {
       for (const seat of SLOTS) {
         const discardCount = effectsForSeat(data, seat)
@@ -1104,42 +1283,6 @@ export async function endActions(gameId: string, actorUid: string) {
           discardedThisPulse.push(c);
         }
         hands[seat] = h;
-      }
-    }
-
-    const matchesTerrainSuit = (seat: PlayerSlot) => {
-      if (hasEffect(effectsForSeat(data, seat), "disable_match_refill_on_failure")) return false;
-      const entry = played[seat]!;
-      const suits = [entry.card.suit, entry.extraCard?.suit].filter(Boolean) as PulseSuit[];
-      return suits.some((s) => s !== "prism" && s === terrain.suit);
-    };
-
-    const noRefillSuitEffects = locationEffects.filter((e) => e?.type === "no_refill_if_played_suit") as any[];
-    const blocksRefill = (seat: PlayerSlot) => {
-      if (!noRefillSuitEffects.length) return false;
-      const entry = played[seat]!;
-      return noRefillSuitEffects.some((e) => e?.suit && seatPlayedSuit(entry, e.suit));
-    };
-
-    const warmupActive = locationEffects.some((e) => e?.type === "first_stall_refill_all");
-    const warmupAvailable = warmupActive && !chapterGlobalUsed.first_stall_refill_all;
-    const treatUndershootAsRefillAll = result === "undershoot" && warmupAvailable;
-    if (treatUndershootAsRefillAll) chapterGlobalUsed.first_stall_refill_all = true;
-
-    const refillIfAllowed = (seat: PlayerSlot) => {
-      if (blocksRefill(seat)) return;
-      refill(seat);
-    };
-
-    // Draw step:
-    // - Success: everyone refills.
-    // - Overshoot: everyone refills (damage still applies).
-    // - Undershoot: only matching-suit players refill (unless Static Core disables the match bonus).
-    if (result === "success" || result === "overshoot" || treatUndershootAsRefillAll) {
-      for (const seat of SLOTS) refillIfAllowed(seat);
-    } else {
-      for (const seat of SLOTS) {
-        if (matchesTerrainSuit(seat)) refillIfAllowed(seat);
       }
     }
 
@@ -1184,6 +1327,7 @@ export async function endActions(gameId: string, actorUid: string) {
       nextPulsePhase !== "pre_selection" && nextExchangeFrom
         ? { from: nextExchangeFrom, status: "awaiting_offer" as const }
         : null;
+    const nextSkipThisPulse = { ...(data.skipNextPulse ?? {}) };
 
     const basePatch: Record<string, any> = {
       golem: { hp, heat },
@@ -1196,6 +1340,8 @@ export async function endActions(gameId: string, actorUid: string) {
       step: nextStep,
       pulsePhase: nextPulsePhase,
       exchange: nextExchange,
+      skipThisPulse: nextSkipThisPulse,
+      skipNextPulse: {},
       lastOutcome: {
         result,
         total,
@@ -1253,6 +1399,8 @@ export async function endActions(gameId: string, actorUid: string) {
           reservoir: null,
           reservoir2: null,
           exchange: null,
+          skipThisPulse: {},
+          skipNextPulse: {},
           terrainDeck: [],
           terrainDeckType: deleteField(),
           terrainIndex: 0,
