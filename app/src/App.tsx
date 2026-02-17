@@ -7,6 +7,7 @@ import Lobby from "./pages/Lobby";
 import Game from "./pages/Game";
 import PostGame from "./pages/PostGame";
 import Profile from "./pages/Profile";
+import Rules from "./pages/Rules";
 import { useAuthUser } from "./lib/useAuth";
 import { ensureUserProfile } from "./lib/users";
 
@@ -97,6 +98,13 @@ export default function App() {
                   >
                     Profile
                   </Link>
+                  <Link
+                    to="/rules"
+                    onClick={() => setSettingsOpen(false)}
+                    className="rounded-2xl bg-white/10 px-4 py-2 text-sm font-semibold text-white/90 ring-1 ring-white/10 hover:bg-white/15"
+                  >
+                    Rules
+                  </Link>
                   <label className="flex items-center justify-between rounded-2xl bg-white/10 px-4 py-2 text-sm font-semibold text-white/90 ring-1 ring-white/10">
                     <span>Terrain anim debug</span>
                     <input
@@ -146,6 +154,14 @@ export default function App() {
               element={
                 <RequireAuth>
                   <Profile />
+                </RequireAuth>
+              }
+            />
+            <Route
+              path="/rules"
+              element={
+                <RequireAuth>
+                  <Rules />
                 </RequireAuth>
               }
             />
