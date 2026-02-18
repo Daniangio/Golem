@@ -19,31 +19,41 @@ import type {
   GameMode,
   ChapterAbilityUsed,
   ChapterGlobalUsed,
+  PendingDiscardSeatRequest,
+  PendingDiscardState,
   PlayerSlot,
   Players,
   PulseCard,
   PulseSuit,
   SeatHands,
 } from "../types";
-import { getAllLocations, getLocationById, getLocationsForStage, getPartById } from "../game/locations";
+import { getAllLocations, getAllSigils, getLocationById, getLocationsForStage, getPartById, getSigilById } from "../game/locations";
 import {
   defaultTerrainDeckTypeForSphere,
   drawCardsWithReshuffle,
   makePulseDeck,
   makeTerrainDeck,
 } from "./game/decks";
-import { randomInt, shuffleInPlace } from "./game/random";
+import { shuffleInPlace } from "./game/random";
 import { bestFitSelection, pulseCardValueOptions } from "./game/scoring";
 
 const GAMES = collection(db, "games");
 
 const SLOTS: PlayerSlot[] = ["p1", "p2", "p3"];
 
-function effectsForSeat(data: Pick<GameDoc, "locationId" | "partPicks">, seat: PlayerSlot): any[] {
+function effectsForSeat(
+  data: Pick<GameDoc, "locationId" | "partPicks"> & Partial<Pick<GameDoc, "seatSigils">>,
+  seat: PlayerSlot
+): any[] {
   const out: any[] = [];
   const partId = data.partPicks?.[seat] ?? null;
   const part = getPartById(partId);
   if (part?.effects?.length) out.push(...part.effects);
+  const sigilIds = data.seatSigils?.[seat] ?? [];
+  for (const sigilId of sigilIds) {
+    const sigil = getSigilById(sigilId);
+    if (sigil?.effects?.length) out.push(...sigil.effects);
+  }
   const loc = getLocationById(data.locationId ?? null);
   if (loc?.effects?.length) out.push(...loc.effects);
   return out;
@@ -54,7 +64,7 @@ function hasEffect(effects: any[], type: string): boolean {
 }
 
 function handCapacityForSeat(
-  data: Pick<GameDoc, "baseHandCapacity" | "partPicks" | "locationId">,
+  data: Pick<GameDoc, "baseHandCapacity" | "partPicks" | "locationId"> & Partial<Pick<GameDoc, "seatSigils">>,
   seat: PlayerSlot
 ): number {
   const base = data.baseHandCapacity ?? 5;
@@ -83,6 +93,20 @@ function seatPlayedSuit(entry: { card: PulseCard; extraCard?: PulseCard } | unde
   return suits.includes(suit);
 }
 
+function effectiveValueOptionsForCard(
+  data: Pick<GameDoc, "locationId" | "partPicks"> & Partial<Pick<GameDoc, "seatSigils">>,
+  seat: PlayerSlot,
+  card: PulseCard,
+  valueOverride?: number
+): number[] {
+  if (typeof valueOverride === "number") return [valueOverride];
+  const seatEffects = effectsForSeat(data, seat);
+  const valueDelta = seatEffects
+    .filter((e) => e?.type === "pulse_value_delta")
+    .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
+  return pulseCardValueOptions(card, seatEffects).map((v) => v + valueDelta);
+}
+
 function preSelectionSeats(data: Pick<GameDoc, "locationId" | "partPicks">): PlayerSlot[] {
   return SLOTS.filter((seat) => hasEffect(effectsForSeat(data, seat), "hide_terrain_until_played"));
 }
@@ -93,9 +117,44 @@ function mandatoryExchangeSeat(data: Pick<GameDoc, "locationId" | "partPicks">):
   );
 }
 
+function normalizePendingSelectionsForRequests(
+  requests: Partial<Record<PlayerSlot, PendingDiscardSeatRequest>>,
+  selections: Partial<Record<PlayerSlot, string[]>> | undefined
+): Partial<Record<PlayerSlot, string[]>> {
+  const out: Partial<Record<PlayerSlot, string[]>> = {};
+  for (const seat of SLOTS) {
+    const req = requests[seat];
+    if (!req) continue;
+    const values = selections?.[seat] ?? [];
+    out[seat] = Array.from(new Set(values));
+  }
+  return out;
+}
+
+function normalizePendingConfirmedForRequests(
+  requests: Partial<Record<PlayerSlot, PendingDiscardSeatRequest>>,
+  confirmed: Partial<Record<PlayerSlot, boolean>> | undefined
+): Partial<Record<PlayerSlot, boolean>> {
+  const out: Partial<Record<PlayerSlot, boolean>> = {};
+  for (const seat of SLOTS) {
+    const req = requests[seat];
+    if (!req) continue;
+    out[seat] = Boolean(confirmed?.[seat]);
+  }
+  return out;
+}
+
 function normalizeName(name: string): string {
   const n = name.trim().replace(/\s+/g, " ");
   return (n || "Player").slice(0, 20);
+}
+
+function revealSigilsByTier(tier: number, count: number): string[] {
+  const pool = getAllSigils().filter((sigil) => sigil.tier === tier);
+  if (!pool.length) return [];
+  const ids = pool.map((sigil) => sigil.id);
+  shuffleInPlace(ids);
+  return ids.slice(0, Math.max(0, Math.min(count, ids.length)));
 }
 
 export function playerCount(players: Players): number {
@@ -154,6 +213,7 @@ export async function createGameAndJoin(
     playerUids: [uid],
     invitedUids: [],
     phase: "setup",
+    seatSigils: {},
     chapter: 1,
     step: 1,
     golem: { hp: 5, heat: 0 },
@@ -363,9 +423,16 @@ export async function startGame(gameId: string, hostUid: string) {
       locationOptions,
       locationVotes: {},
       phase: "choose_location",
+      sigilDraftPool: [],
+      sigilDraftAssignments: {},
+      sigilDraftTier: null,
+      sigilDraftMaxPicks: 0,
+      sigilDraftContext: deleteField(),
+      pendingDiscard: deleteField(),
       partPicks: {},
       optionalPartId: null,
       partAssignments: {},
+      seatSigils: data.seatSigils ?? {},
       chapter: 1,
       step: 1,
       golem: { hp: 5, heat: 0 },
@@ -481,11 +548,36 @@ export async function confirmLocation(gameId: string, actorUid: string, preferre
         ? preferredLocationId
         : tied[Math.floor(Math.random() * tied.length)]!;
     const chosenLocation = getLocationById(chosen);
+    const gameMode = (data.gameMode ?? "campaign") as GameMode;
+    const allSigilIds = getAllSigils().map((sigil) => sigil.id);
+
+    if (gameMode === "single_location") {
+      tx.update(gameRef, {
+        locationId: chosen,
+        chapter: chosenLocation?.sphere ?? data.chapter ?? 1,
+        phase: "choose_sigils",
+        sigilDraftContext: "single_location_setup" as const,
+        sigilDraftTier: null,
+        sigilDraftPool: allSigilIds,
+        sigilDraftAssignments: {},
+        sigilDraftMaxPicks: allSigilIds.length,
+        pendingDiscard: deleteField(),
+        partPicks: {},
+        updatedAt: serverTimestamp(),
+      });
+      return;
+    }
 
     tx.update(gameRef, {
       locationId: chosen,
       chapter: chosenLocation?.sphere ?? data.chapter ?? 1,
       phase: "choose_parts",
+      sigilDraftContext: deleteField(),
+      sigilDraftTier: deleteField(),
+      sigilDraftPool: deleteField(),
+      sigilDraftAssignments: deleteField(),
+      sigilDraftMaxPicks: deleteField(),
+      pendingDiscard: deleteField(),
       partPicks: {},
       updatedAt: serverTimestamp(),
     });
@@ -538,6 +630,125 @@ export async function setPartPick(
   });
 }
 
+export async function setSigilDraftAssignment(
+  gameId: string,
+  actorUid: string,
+  sigilId: string,
+  seat: PlayerSlot | null
+) {
+  const gameRef = doc(db, "games", gameId);
+
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(gameRef);
+    if (!snap.exists()) throw new Error("Game not found.");
+    const data = snap.data() as GameDoc;
+
+    if (data.status !== "active") throw new Error("Game is not active.");
+    if (data.phase !== "choose_sigils") throw new Error("Not in sigil draft.");
+    if (data.createdBy !== actorUid) throw new Error("Only the host can assign sigils.");
+
+    const pool = data.sigilDraftPool ?? [];
+    if (!pool.includes(sigilId)) throw new Error("Sigil not available in this draft.");
+    if (seat && !data.players?.[seat]) throw new Error("Seat is empty.");
+
+    const assignments = { ...(data.sigilDraftAssignments ?? {}) } as Record<string, PlayerSlot>;
+    const maxPicks = Math.max(0, Number(data.sigilDraftMaxPicks ?? pool.length) || 0);
+    const hadAssignment = Boolean(assignments[sigilId]);
+    if (seat) {
+      if (!hadAssignment && Object.keys(assignments).length >= maxPicks) {
+        throw new Error("Maximum picks reached.");
+      }
+      assignments[sigilId] = seat;
+    } else {
+      delete assignments[sigilId];
+    }
+
+    tx.update(gameRef, {
+      sigilDraftAssignments: assignments,
+      updatedAt: serverTimestamp(),
+    });
+  });
+}
+
+export async function confirmSigils(gameId: string, actorUid: string) {
+  const gameRef = doc(db, "games", gameId);
+
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(gameRef);
+    if (!snap.exists()) throw new Error("Game not found.");
+    const data = snap.data() as GameDoc;
+
+    if (data.status !== "active") throw new Error("Game is not active.");
+    if (data.phase !== "choose_sigils") throw new Error("Not in sigil draft.");
+    if (data.createdBy !== actorUid) throw new Error("Only the host can confirm sigils.");
+
+    const context = data.sigilDraftContext;
+    const pool = data.sigilDraftPool ?? [];
+    const maxPicks = Math.max(0, Number(data.sigilDraftMaxPicks ?? pool.length) || 0);
+    const assignmentsRaw = { ...(data.sigilDraftAssignments ?? {}) } as Record<string, PlayerSlot>;
+    const picks = Object.entries(assignmentsRaw).filter(([sigilId, seat]) => pool.includes(sigilId) && Boolean(seat));
+    if (picks.length > maxPicks) throw new Error("Too many sigils assigned.");
+    const isRewardDraft = context === "reward_tier_1" || context === "reward_location";
+    if (isRewardDraft && picks.length !== maxPicks) {
+      throw new Error(`Assign exactly ${maxPicks} rewarded sigil${maxPicks === 1 ? "" : "s"}.`);
+    }
+
+    const seatSigils: Partial<Record<PlayerSlot, string[]>> = { ...(data.seatSigils ?? {}) };
+    for (const [sigilId, seat] of picks) {
+      for (const slot of SLOTS) {
+        const existing = seatSigils[slot] ?? [];
+        if (!existing.includes(sigilId)) continue;
+        seatSigils[slot] = existing.filter((id) => id !== sigilId);
+      }
+      const next = new Set(seatSigils[seat] ?? []);
+      next.add(sigilId);
+      seatSigils[seat] = Array.from(next);
+    }
+
+    if (context === "single_location_setup") {
+      tx.update(gameRef, {
+        seatSigils,
+        phase: "choose_parts" as const,
+        sigilDraftContext: deleteField(),
+        sigilDraftTier: deleteField(),
+        sigilDraftPool: deleteField(),
+        sigilDraftAssignments: deleteField(),
+        sigilDraftMaxPicks: deleteField(),
+        updatedAt: serverTimestamp(),
+      });
+      return;
+    }
+
+    if (isRewardDraft) {
+      tx.update(gameRef, {
+        seatSigils,
+        phase: "choose_location" as const,
+        locationId: null,
+        locationVotes: {},
+        partPicks: {},
+        partAssignments: {},
+        sigilDraftContext: deleteField(),
+        sigilDraftTier: deleteField(),
+        sigilDraftPool: deleteField(),
+        sigilDraftAssignments: deleteField(),
+        sigilDraftMaxPicks: deleteField(),
+        updatedAt: serverTimestamp(),
+      });
+      return;
+    }
+
+    tx.update(gameRef, {
+      seatSigils,
+      sigilDraftContext: deleteField(),
+      sigilDraftTier: deleteField(),
+      sigilDraftPool: deleteField(),
+      sigilDraftAssignments: deleteField(),
+      sigilDraftMaxPicks: deleteField(),
+      updatedAt: serverTimestamp(),
+    });
+  });
+}
+
 export async function confirmParts(gameId: string, hostUid: string) {
   const gameRef = doc(db, "games", gameId);
 
@@ -579,7 +790,7 @@ export async function confirmParts(gameId: string, hostUid: string) {
     const hands: SeatHands = {};
     for (const seat of SLOTS) {
       const cap = handCapacityForSeat(
-        { baseHandCapacity, partPicks: picks, locationId: data.locationId ?? undefined },
+        { baseHandCapacity, partPicks: picks, locationId: data.locationId ?? undefined, seatSigils: data.seatSigils },
         seat
       );
       hands[seat] = deck.splice(0, cap);
@@ -619,6 +830,7 @@ export async function confirmParts(gameId: string, hostUid: string) {
       played: {},
       chapterAbilityUsed: {},
       chapterGlobalUsed: {},
+      pendingDiscard: deleteField(),
       outcomeLog: [],
       updatedAt: serverTimestamp(),
     });
@@ -822,12 +1034,110 @@ export async function playAuxBatteryCard(gameId: string, actorUid: string, seat:
     const [card] = hand.splice(idx, 1);
     hands[seat] = hand;
 
-    played[seat] = { ...entry, extraCard: card };
+    const { extraValueChoice: _oldExtraChoice, ...entryRest } = entry;
+    played[seat] = { ...entryRest, extraCard: card };
     usedForSeat[abilityKey] = true;
     chapterAbilityUsed[seat] = usedForSeat;
 
     tx.update(gameRef, {
       hands,
+      played,
+      chapterAbilityUsed,
+      updatedAt: serverTimestamp(),
+    });
+  });
+}
+
+export async function setPlayedCardValueChoice(
+  gameId: string,
+  actorUid: string,
+  seat: PlayerSlot,
+  target: "primary" | "extra",
+  value: number | null
+) {
+  const gameRef = doc(db, "games", gameId);
+
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(gameRef);
+    if (!snap.exists()) throw new Error("Game not found.");
+    const data = snap.data() as GameDoc;
+
+    if (data.status !== "active") throw new Error("Game is not active.");
+    if (data.phase !== "play") throw new Error("Not in play phase.");
+    if ((data.pulsePhase ?? "selection") !== "actions") throw new Error("Card values can be chosen only after reveal.");
+
+    const seatUid = data.players?.[seat];
+    if (!seatUid) throw new Error("Seat is empty.");
+    const isBot = isBotUid(seatUid);
+    const isHost = data.createdBy === actorUid;
+    if (seatUid !== actorUid && !(isHost && isBot)) throw new Error("You can't act for that seat.");
+
+    const played = { ...(data.played ?? {}) } as any;
+    const entry = played[seat];
+    if (!entry?.card) throw new Error("Seat has not played a card.");
+
+    const card = target === "primary" ? entry.card : entry.extraCard;
+    if (!card) throw new Error("No card available for that choice.");
+
+    const options = effectiveValueOptionsForCard(
+      { locationId: data.locationId, partPicks: data.partPicks, seatSigils: data.seatSigils },
+      seat,
+      card,
+      target === "primary" ? entry.valueOverride : undefined
+    );
+    if (options.length <= 1) throw new Error("This card has a fixed value.");
+
+    const field = target === "primary" ? "valueChoice" : "extraValueChoice";
+    if (value === null) {
+      const { [field]: _ignore, ...rest } = entry;
+      played[seat] = rest;
+    } else {
+      if (!options.includes(value)) throw new Error("Invalid value for this card.");
+      played[seat] = { ...entry, [field]: value };
+    }
+
+    tx.update(gameRef, {
+      played,
+      updatedAt: serverTimestamp(),
+    });
+  });
+}
+
+export async function useSteamSigilResonance(gameId: string, actorUid: string, seat: PlayerSlot) {
+  const gameRef = doc(db, "games", gameId);
+
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(gameRef);
+    if (!snap.exists()) throw new Error("Game not found.");
+    const data = snap.data() as GameDoc;
+
+    if (data.status !== "active") throw new Error("Game is not active.");
+    if (data.phase !== "play") throw new Error("Not in play phase.");
+    if ((data.pulsePhase ?? "selection") !== "actions") throw new Error("Only after reveal.");
+
+    const seatUid = data.players?.[seat];
+    if (!seatUid) throw new Error("Seat is empty.");
+    const isBot = isBotUid(seatUid);
+    const isHost = data.createdBy === actorUid;
+    if (seatUid !== actorUid && !(isHost && isBot)) throw new Error("You can't act for that seat.");
+
+    const abilityKey = "once_per_chapter_resonance_as_steam";
+    if (!hasEffect(effectsForSeat(data, seat), abilityKey)) {
+      throw new Error("That seat cannot force Steam resonance.");
+    }
+
+    const chapterAbilityUsed = ensureChapterAbilityUsed(data);
+    const usedForSeat = { ...(chapterAbilityUsed[seat] ?? {}) };
+    if (usedForSeat[abilityKey]) throw new Error("This sigil was already used this Sphere.");
+
+    const played = { ...(data.played ?? {}) } as any;
+    const entry = played[seat];
+    if (!entry?.card) throw new Error("Seat has not played a card.");
+    played[seat] = { ...entry, resonanceSuitOverride: "steam" };
+    usedForSeat[abilityKey] = true;
+    chapterAbilityUsed[seat] = usedForSeat;
+
+    tx.update(gameRef, {
       played,
       chapterAbilityUsed,
       updatedAt: serverTimestamp(),
@@ -872,7 +1182,8 @@ export async function useLensOfTiphareth(gameId: string, actorUid: string, seat:
 
     const handCard = hand[idx]!;
     hand[idx] = entry.card;
-    played[seat] = { ...entry, card: handCard };
+    const { valueChoice: _oldChoice, ...entryRest } = entry;
+    played[seat] = { ...entryRest, card: handCard };
     hands[seat] = hand;
     skipNextPulse[seat] = true;
 
@@ -917,7 +1228,8 @@ export async function useFuse(gameId: string, actorUid: string, seat: PlayerSlot
     if (!entry?.card) throw new Error("Target seat has not played a card.");
     if (entry.valueOverride === 0) throw new Error("That card is already reduced to 0.");
 
-    played[targetSeat] = { ...entry, valueOverride: 0 };
+    const { valueChoice: _oldChoice, ...entryRest } = entry;
+    played[targetSeat] = { ...entryRest, valueOverride: 0 };
     usedForSeat[abilityKey] = true;
     chapterAbilityUsed[seat] = usedForSeat;
 
@@ -956,7 +1268,7 @@ export async function swapWithReservoir(gameId: string, actorUid: string, seat: 
     if (!entry?.card) throw new Error("Seat has not played a card.");
 
     const nextReservoir = entry.card as PulseCard;
-    const { valueOverride: _oldOverride, ...rest } = entry;
+    const { valueOverride: _oldOverride, valueChoice: _oldChoice, ...rest } = entry;
     played[seat] = { ...rest, card: reservoir };
 
     const location = getLocationById(data.locationId ?? null);
@@ -964,6 +1276,10 @@ export async function swapWithReservoir(gameId: string, actorUid: string, seat: 
     const swapCostEffect = locationEffects.find((e) => e?.type === "swap_friction_cost");
     let cost = swapCostEffect ? Math.max(0, Number((swapCostEffect as any).amount) || 0) : 1;
     if (hasEffect(effectsForSeat(data, seat), "free_swap_on_suit_resonance") && entry.card?.suit === reservoir.suit) {
+      cost = 0;
+    }
+    const sigilZeroSwap = effectsForSeat(data, seat).find((e) => e?.type === "swap_friction_zero_if_replaced_suit") as any;
+    if (sigilZeroSwap?.suit && entry.card?.suit === sigilZeroSwap.suit) {
       cost = 0;
     }
 
@@ -991,6 +1307,121 @@ export async function swapWithReservoir(gameId: string, actorUid: string, seat: 
   });
 }
 
+export async function togglePendingDiscardSelection(gameId: string, actorUid: string, seat: PlayerSlot, cardId: string) {
+  const gameRef = doc(db, "games", gameId);
+
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(gameRef);
+    if (!snap.exists()) throw new Error("Game not found.");
+    const data = snap.data() as GameDoc;
+
+    if (data.status !== "active") throw new Error("Game is not active.");
+    if (data.phase !== "play") throw new Error("Not in play phase.");
+    if (data.pulsePhase !== "discard_selection") throw new Error("No discard selection pending.");
+
+    const pending = data.pendingDiscard;
+    if (!pending) throw new Error("No discard selection pending.");
+    const request = pending.requests?.[seat];
+    if (!request) throw new Error("This seat has no discard request.");
+
+    const seatUid = data.players?.[seat];
+    if (!seatUid) throw new Error("Seat is empty.");
+    const isBot = isBotUid(seatUid);
+    const isHost = data.createdBy === actorUid;
+    if (seatUid !== actorUid && !(isHost && isBot)) throw new Error("You can't act for that seat.");
+
+    const hand = data.hands?.[seat] ?? [];
+    if (!hand.some((card) => card.id === cardId)) throw new Error("Card not found in hand.");
+
+    const maxSelectable = Math.max(0, Number(request.required) || 0) + Math.max(0, Number(request.optional) || 0);
+    const selections = { ...(pending.selections ?? {}) } as Partial<Record<PlayerSlot, string[]>>;
+    const current = Array.from(new Set(selections[seat] ?? []));
+    const idx = current.indexOf(cardId);
+    if (idx >= 0) {
+      current.splice(idx, 1);
+    } else {
+      if (current.length >= maxSelectable) throw new Error("Maximum selectable cards reached.");
+      current.push(cardId);
+    }
+    selections[seat] = current;
+
+    const confirmed = { ...(pending.confirmed ?? {}) } as Partial<Record<PlayerSlot, boolean>>;
+    confirmed[seat] = false;
+
+    tx.update(gameRef, {
+      pendingDiscard: {
+        ...pending,
+        selections,
+        confirmed,
+      } satisfies PendingDiscardState,
+      updatedAt: serverTimestamp(),
+    });
+  });
+}
+
+export async function confirmPendingDiscardSelection(
+  gameId: string,
+  actorUid: string,
+  seat: PlayerSlot,
+  skip: boolean = false
+) {
+  const gameRef = doc(db, "games", gameId);
+
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(gameRef);
+    if (!snap.exists()) throw new Error("Game not found.");
+    const data = snap.data() as GameDoc;
+
+    if (data.status !== "active") throw new Error("Game is not active.");
+    if (data.phase !== "play") throw new Error("Not in play phase.");
+    if (data.pulsePhase !== "discard_selection") throw new Error("No discard selection pending.");
+
+    const pending = data.pendingDiscard;
+    if (!pending) throw new Error("No discard selection pending.");
+    const request = pending.requests?.[seat];
+    if (!request) throw new Error("This seat has no discard request.");
+
+    const seatUid = data.players?.[seat];
+    if (!seatUid) throw new Error("Seat is empty.");
+    const isBot = isBotUid(seatUid);
+    const isHost = data.createdBy === actorUid;
+    if (seatUid !== actorUid && !(isHost && isBot)) throw new Error("You can't act for that seat.");
+
+    const required = Math.max(0, Number(request.required) || 0);
+    const optional = Math.max(0, Number(request.optional) || 0);
+    const maxSelectable = required + optional;
+    const hand = data.hands?.[seat] ?? [];
+
+    const selections = { ...(pending.selections ?? {}) } as Partial<Record<PlayerSlot, string[]>>;
+    const uniqueSelection = Array.from(new Set(selections[seat] ?? []));
+    if (uniqueSelection.some((id) => !hand.some((card) => card.id === id))) {
+      throw new Error("Discard selection is no longer valid.");
+    }
+    if (uniqueSelection.length > maxSelectable) throw new Error("Too many cards selected.");
+
+    if (skip) {
+      if (!request.allowSkip || required > 0) throw new Error("Skipping is not allowed for this discard.");
+      selections[seat] = [];
+    } else if (uniqueSelection.length < required) {
+      throw new Error(`Select at least ${required} card${required === 1 ? "" : "s"}.`);
+    } else {
+      selections[seat] = uniqueSelection;
+    }
+
+    const confirmed = { ...(pending.confirmed ?? {}) } as Partial<Record<PlayerSlot, boolean>>;
+    confirmed[seat] = true;
+
+    tx.update(gameRef, {
+      pendingDiscard: {
+        ...pending,
+        selections,
+        confirmed,
+      } satisfies PendingDiscardState,
+      updatedAt: serverTimestamp(),
+    });
+  });
+}
+
 export async function endActions(gameId: string, actorUid: string) {
   const gameRef = doc(db, "games", gameId);
 
@@ -1001,11 +1432,63 @@ export async function endActions(gameId: string, actorUid: string) {
 
     if (data.status !== "active") throw new Error("Game is not active.");
     if (data.phase !== "play") throw new Error("Not in play phase.");
-    if (data.pulsePhase !== "actions") throw new Error("Not in actions phase.");
+    if (data.pulsePhase !== "actions" && data.pulsePhase !== "discard_selection") {
+      throw new Error("Not in actions/discard phase.");
+    }
 
     const isHost = data.createdBy === actorUid;
     if (!isHost) throw new Error("Only the host can end actions (v0).");
     if (data.exchange) throw new Error("Resolve the Communion exchange first.");
+    if (data.pulsePhase === "discard_selection" && !data.pendingDiscard) {
+      throw new Error("Discard selection is not initialized.");
+    }
+
+    const pendingDiscard = data.pendingDiscard ?? null;
+    const pendingReason = pendingDiscard?.reason ?? null;
+    const pendingSelections = { ...(pendingDiscard?.selections ?? {}) } as Partial<Record<PlayerSlot, string[]>>;
+    const pendingConfirmed = { ...(pendingDiscard?.confirmed ?? {}) } as Partial<Record<PlayerSlot, boolean>>;
+
+    const requestSelection = (
+      seat: PlayerSlot,
+      request: PendingDiscardSeatRequest,
+      hand: PulseCard[]
+    ): string[] | null => {
+      const required = Math.max(0, Number(request.required) || 0);
+      const optional = Math.max(0, Number(request.optional) || 0);
+      const maxSelectable = required + optional;
+      const values = Array.from(new Set(pendingSelections[seat] ?? []));
+      if (values.length > maxSelectable) throw new Error("Too many cards selected for discard.");
+      if (values.some((id) => !hand.some((card) => card.id === id))) {
+        throw new Error("Discard selection is not valid for current hand.");
+      }
+      if (!pendingConfirmed[seat]) return null;
+      if (values.length < required) return null;
+      return values;
+    };
+
+    const promptDiscardSelection = (
+      reason: PendingDiscardState["reason"],
+      requests: Partial<Record<PlayerSlot, PendingDiscardSeatRequest>>
+    ) => {
+      const carrySelections =
+        pendingReason === reason
+          ? normalizePendingSelectionsForRequests(requests, pendingSelections)
+          : normalizePendingSelectionsForRequests(requests, undefined);
+      const carryConfirmed =
+        pendingReason === reason
+          ? normalizePendingConfirmedForRequests(requests, pendingConfirmed)
+          : normalizePendingConfirmedForRequests(requests, undefined);
+      tx.update(gameRef, {
+        pulsePhase: "discard_selection" as const,
+        pendingDiscard: {
+          reason,
+          requests,
+          selections: carrySelections,
+          confirmed: carryConfirmed,
+        } satisfies PendingDiscardState,
+        updatedAt: serverTimestamp(),
+      });
+    };
 
     const terrainDeck = data.terrainDeck ?? [];
     const terrainIndex = data.terrainIndex ?? 0;
@@ -1030,26 +1513,29 @@ export async function endActions(gameId: string, actorUid: string) {
     const optionSeat: PlayerSlot[] = [];
     for (const seat of activeSeats) {
       const entry = played[seat]!;
-      const seatEffects = effectsForSeat(data, seat);
-      const prismLockedToZero = hasEffect(seatEffects, "prism_fixed_zero");
-      const valueDelta = seatEffects
-        .filter((e) => e?.type === "pulse_value_delta")
-        .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
-
-      if (typeof entry.valueOverride === "number") {
-        options.push([entry.valueOverride]);
-      } else {
-        const cardOptions = pulseCardValueOptions(entry.card, seatEffects);
-        options.push(
-          prismLockedToZero && entry.card.suit === "prism" ? [0] : cardOptions.map((v) => v + valueDelta)
-        );
-      }
+      const primaryOptions = effectiveValueOptionsForCard(
+        { locationId: data.locationId, partPicks: data.partPicks, seatSigils: data.seatSigils },
+        seat,
+        entry.card,
+        entry.valueOverride
+      );
+      const primaryChoice =
+        typeof entry.valueChoice === "number" && primaryOptions.includes(entry.valueChoice)
+          ? entry.valueChoice
+          : null;
+      options.push(primaryChoice === null ? primaryOptions : [primaryChoice]);
       optionSeat.push(seat);
       if (entry.extraCard) {
-        const extraOptions = pulseCardValueOptions(entry.extraCard, seatEffects);
-        options.push(
-          prismLockedToZero && entry.extraCard.suit === "prism" ? [0] : extraOptions.map((v) => v + valueDelta)
+        const extraOptions = effectiveValueOptionsForCard(
+          { locationId: data.locationId, partPicks: data.partPicks, seatSigils: data.seatSigils },
+          seat,
+          entry.extraCard
         );
+        const extraChoice =
+          typeof entry.extraValueChoice === "number" && extraOptions.includes(entry.extraValueChoice)
+            ? entry.extraValueChoice
+            : null;
+        options.push(extraChoice === null ? extraOptions : [extraChoice]);
         optionSeat.push(seat);
       }
     }
@@ -1074,11 +1560,12 @@ export async function endActions(gameId: string, actorUid: string) {
 
     const anchorEffectKey = "prevent_stall_limited_refill";
     if (result === "undershoot" && terrain.min - total <= 3) {
-      const anchorSeats = activeSeats.filter((seat) => hasEffect(effectsForSeat(data, seat), anchorEffectKey));
-      if (anchorSeats.length) {
-        for (const seat of anchorSeats) {
-          chapterAbilityUsed[seat] = { ...(chapterAbilityUsed[seat] ?? {}), [anchorEffectKey]: true };
-        }
+      const anchorSeat = activeSeats.find((seat) => {
+        if (!hasEffect(effectsForSeat(data, seat), anchorEffectKey)) return false;
+        return !Boolean(chapterAbilityUsed?.[seat]?.[anchorEffectKey]);
+      });
+      if (anchorSeat) {
+        chapterAbilityUsed[anchorSeat] = { ...(chapterAbilityUsed[anchorSeat] ?? {}), [anchorEffectKey]: true };
         result = "success";
       }
     }
@@ -1094,18 +1581,35 @@ export async function endActions(gameId: string, actorUid: string) {
       if (shieldSeat) {
         chapterAbilityUsed[shieldSeat] = { ...(chapterAbilityUsed[shieldSeat] ?? {}), [shieldEffectKey]: true };
       } else {
-        let damage = 1;
-        const highRiskSeats = activeSeats.filter((seat) => hasEffect(effectsForSeat(data, seat), "high_value_double_damage_risk"));
-        if (highRiskSeats.length) {
-          const maxima = activeSeats.map((seat) => Math.max(...(seatManifestedValues[seat] ?? [Number.NEGATIVE_INFINITY])));
-          const overallMax = Math.max(...maxima);
-          const hasTopRisk = highRiskSeats.some((seat) => {
-            const seatMax = Math.max(...(seatManifestedValues[seat] ?? [Number.NEGATIVE_INFINITY]));
-            return Number.isFinite(seatMax) && seatMax === overallMax;
-          });
-          if (hasTopRisk) damage = 2;
+        const stoneShieldKey = "once_per_chapter_overshoot_stone_to_friction";
+        const stoneShieldSeat = activeSeats.find((seat) => {
+          if (!hasEffect(effectsForSeat(data, seat), stoneShieldKey)) return false;
+          if (chapterAbilityUsed?.[seat]?.[stoneShieldKey]) return false;
+          const entry = played[seat];
+          return seatPlayedSuit(entry as any, "stone");
+        });
+
+        if (stoneShieldSeat) {
+          chapterAbilityUsed[stoneShieldSeat] = { ...(chapterAbilityUsed[stoneShieldSeat] ?? {}), [stoneShieldKey]: true };
+          heat += 1;
+        } else {
+          let damage = 1;
+          const highRiskSeats = activeSeats.filter((seat) =>
+            hasEffect(effectsForSeat(data, seat), "high_value_double_damage_risk")
+          );
+          if (highRiskSeats.length) {
+            const maxima = activeSeats.map((seat) =>
+              Math.max(...(seatManifestedValues[seat] ?? [Number.NEGATIVE_INFINITY]))
+            );
+            const overallMax = Math.max(...maxima);
+            const hasTopRisk = highRiskSeats.some((seat) => {
+              const seatMax = Math.max(...(seatManifestedValues[seat] ?? [Number.NEGATIVE_INFINITY]));
+              return Number.isFinite(seatMax) && seatMax === overallMax;
+            });
+            if (hasTopRisk) damage = 2;
+          }
+          hp = Math.max(0, hp - damage);
         }
-        hp = Math.max(0, hp - damage);
       }
     }
 
@@ -1184,7 +1688,7 @@ export async function endActions(gameId: string, actorUid: string) {
 	    const baseHandCapacity = data.baseHandCapacity ?? 5;
 	    const refill = (seat: PlayerSlot) => {
 	      const cap = handCapacityForSeat(
-	        { baseHandCapacity, partPicks: data.partPicks, locationId: data.locationId },
+	        { baseHandCapacity, partPicks: data.partPicks, locationId: data.locationId, seatSigils: data.seatSigils },
 	        seat
 	      );
       const h = [...(hands[seat] ?? [])];
@@ -1209,6 +1713,7 @@ export async function endActions(gameId: string, actorUid: string) {
       const entry = played[seat];
       if (!entry?.card) return false;
       const suits = [entry.card.suit, entry.extraCard?.suit].filter(Boolean) as PulseSuit[];
+      if (entry.resonanceSuitOverride) suits.push(entry.resonanceSuitOverride);
       return suits.some((s) => s !== "prism" && s === terrain.suit);
     };
 
@@ -1225,10 +1730,54 @@ export async function endActions(gameId: string, actorUid: string) {
     const treatUndershootAsRefillAll = result === "undershoot" && warmupAvailable;
     if (treatUndershootAsRefillAll) chapterGlobalUsed.first_stall_refill_all = true;
 
+    const acidDiscardRequests: Partial<Record<PlayerSlot, PendingDiscardSeatRequest>> = {};
+    let needsAcidPrompt = false;
     const anchorLocked = (seat: PlayerSlot) => Boolean(chapterAbilityUsed?.[seat]?.[anchorEffectKey]);
     const refillIfAllowed = (seat: PlayerSlot, source: "success" | "resonance" | "other") => {
       if ((source === "success" || source === "resonance") && anchorLocked(seat)) return;
       if (blocksRefill(seat)) return;
+
+      if (source === "resonance") {
+        const seatEffects = effectsForSeat(data, seat);
+        const entry = played[seat];
+        const acidResonanceSigil = hasEffect(seatEffects, "acid_resonance_discard_two_then_refill");
+        if (acidResonanceSigil && entry && seatPlayedSuit(entry as any, "acid")) {
+          const h = [...(hands[seat] ?? [])];
+          const discardCount = Math.min(2, h.length);
+          if (discardCount > 0) {
+            const request: PendingDiscardSeatRequest = {
+              required: discardCount,
+              optional: 0,
+              allowSkip: false,
+              label: "Sigil of Acid: choose cards to discard before Resonance refill.",
+            };
+            acidDiscardRequests[seat] = request;
+            if (pendingReason !== "acid_resonance") {
+              needsAcidPrompt = true;
+              return;
+            }
+            const selected = requestSelection(seat, request, h);
+            if (!selected) {
+              needsAcidPrompt = true;
+              return;
+            }
+            const selectedSet = new Set(selected);
+            const kept: PulseCard[] = [];
+            for (const card of h) {
+              if (selectedSet.has(card.id)) {
+                discard.push(card);
+                discardedThisPulse.push(card);
+              } else {
+                kept.push(card);
+              }
+            }
+            hands[seat] = kept;
+          } else {
+            hands[seat] = h;
+          }
+        }
+      }
+
       refill(seat);
     };
 
@@ -1265,24 +1814,55 @@ export async function endActions(gameId: string, actorUid: string) {
       }
     }
 
+    if (needsAcidPrompt) {
+      promptDiscardSelection("acid_resonance", acidDiscardRequests);
+      return;
+    }
+
     // Part rule: discard extra cards on undershoot (e.g., Fractured Pillar).
     // This resolves after draw/refill effects (including Resonance).
     if (result === "undershoot") {
+      const undershootDiscardRequests: Partial<Record<PlayerSlot, PendingDiscardSeatRequest>> = {};
+      let needsUndershootPrompt = false;
       for (const seat of SLOTS) {
         const discardCount = effectsForSeat(data, seat)
           .filter((e) => e?.type === "discard_cards_on_undershoot")
           .reduce((sum, e) => sum + (Number(e.count) || 0), 0);
         if (!discardCount) continue;
         const h = [...(hands[seat] ?? [])];
-        for (let i = 0; i < discardCount; i += 1) {
-          if (!h.length) break;
-          const idx = randomInt(h.length);
-          const [c] = h.splice(idx, 1);
-          if (!c) continue;
-          discard.push(c);
-          discardedThisPulse.push(c);
+        const required = Math.min(discardCount, h.length);
+        if (!required) continue;
+        const request: PendingDiscardSeatRequest = {
+          required,
+          optional: 0,
+          allowSkip: false,
+          label: "Undershoot penalty: choose cards to discard.",
+        };
+        undershootDiscardRequests[seat] = request;
+        if (pendingReason !== "undershoot_penalty") {
+          needsUndershootPrompt = true;
+          continue;
         }
-        hands[seat] = h;
+        const selected = requestSelection(seat, request, h);
+        if (!selected) {
+          needsUndershootPrompt = true;
+          continue;
+        }
+        const selectedSet = new Set(selected);
+        const kept: PulseCard[] = [];
+        for (const card of h) {
+          if (selectedSet.has(card.id)) {
+            discard.push(card);
+            discardedThisPulse.push(card);
+          } else {
+            kept.push(card);
+          }
+        }
+        hands[seat] = kept;
+      }
+      if (needsUndershootPrompt) {
+        promptDiscardSelection("undershoot_penalty", undershootDiscardRequests);
+        return;
       }
     }
 
@@ -1316,6 +1896,11 @@ export async function endActions(gameId: string, actorUid: string) {
     const endedByDamage = hp <= 0;
     const completedChapter = advance && nextIndex >= terrainDeck.length;
     const completedSingleLocationRun = completedChapter && gameMode === "single_location";
+    const locationSigilReward = completedChapter && gameMode === "campaign" ? location?.sigilReward : null;
+    const rewardTier = Math.max(1, Number(locationSigilReward?.tier) || 1);
+    const rewardReveal = Math.max(0, Number(locationSigilReward?.reveal) || 0);
+    const rewardChoose = Math.max(0, Number(locationSigilReward?.choose) || 0);
+    const shouldLocationSigilReward = Boolean(locationSigilReward && rewardReveal > 0 && rewardChoose > 0);
     const nextStage = chapter + 1;
     const nextLocations =
       completedChapter && gameMode === "campaign" ? getLocationsForStage(nextStage).map((l) => l.id) : [];
@@ -1352,6 +1937,7 @@ export async function endActions(gameId: string, actorUid: string) {
       outcomeLog,
       chapterAbilityUsed,
       chapterGlobalUsed,
+      pendingDiscard: deleteField(),
       updatedAt: serverTimestamp(),
     };
 
@@ -1377,6 +1963,84 @@ export async function endActions(gameId: string, actorUid: string) {
     }
 
     if (completedChapter) {
+      if (shouldLocationSigilReward) {
+        const rewardPool = revealSigilsByTier(rewardTier, rewardReveal);
+        const rewardMaxPicks = Math.min(Math.max(1, rewardChoose), rewardPool.length);
+        if (!rewardPool.length) {
+          tx.update(gameRef, {
+            ...basePatch,
+            // Start next stage at location selection; re-deal happens after part confirmation.
+            chapter: nextStage,
+            step: 1,
+            phase: "choose_location" as const,
+            locationId: null,
+            locationOptions: nextLocations,
+            locationVotes: {},
+            partPicks: {},
+            optionalPartId: null,
+            partAssignments: {},
+            chapterAbilityUsed: {},
+            chapterGlobalUsed: {},
+            pulseDeck: [],
+            pulseDiscard: discard,
+            lastDiscarded: discardedThisPulse,
+            hands: {},
+            reservoir: null,
+            reservoir2: null,
+            exchange: null,
+            skipThisPulse: {},
+            skipNextPulse: {},
+            terrainDeck: [],
+            terrainDeckType: deleteField(),
+            terrainIndex: 0,
+            played: {},
+            pulsePhase: "selection" as const,
+            sigilDraftContext: deleteField(),
+            sigilDraftTier: deleteField(),
+            sigilDraftPool: deleteField(),
+            sigilDraftAssignments: deleteField(),
+            sigilDraftMaxPicks: deleteField(),
+            updatedAt: serverTimestamp(),
+          });
+          return;
+        }
+        tx.update(gameRef, {
+          ...basePatch,
+          chapter: nextStage,
+          step: 1,
+          phase: "choose_sigils" as const,
+          locationId: null,
+          locationOptions: nextLocations,
+          locationVotes: {},
+          partPicks: {},
+          optionalPartId: null,
+          partAssignments: {},
+          chapterAbilityUsed: {},
+          chapterGlobalUsed: {},
+          pulseDeck: [],
+          pulseDiscard: discard,
+          lastDiscarded: discardedThisPulse,
+          hands: {},
+          reservoir: null,
+          reservoir2: null,
+          exchange: null,
+          skipThisPulse: {},
+          skipNextPulse: {},
+          terrainDeck: [],
+          terrainDeckType: deleteField(),
+          terrainIndex: 0,
+          played: {},
+          pulsePhase: "selection" as const,
+          sigilDraftContext: "reward_location" as const,
+          sigilDraftTier: rewardTier,
+          sigilDraftPool: rewardPool,
+          sigilDraftAssignments: {},
+          sigilDraftMaxPicks: rewardMaxPicks,
+          updatedAt: serverTimestamp(),
+        });
+        return;
+      }
+
       if (nextLocations.length) {
         tx.update(gameRef, {
           ...basePatch,
@@ -1406,6 +2070,11 @@ export async function endActions(gameId: string, actorUid: string) {
           terrainIndex: 0,
           played: {},
           pulsePhase: "selection" as const,
+          sigilDraftContext: deleteField(),
+          sigilDraftTier: deleteField(),
+          sigilDraftPool: deleteField(),
+          sigilDraftAssignments: deleteField(),
+          sigilDraftMaxPicks: deleteField(),
           updatedAt: serverTimestamp(),
         });
       } else {

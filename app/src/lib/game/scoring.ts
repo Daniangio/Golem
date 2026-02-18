@@ -5,16 +5,20 @@ export function pulseCardValueOptions(card: PulseCard, effects: any[] = []): num
   if (card.suit === "prism") {
     if (prismFixedZero) return [0];
     const out: number[] = [];
-    if (card.prismRange === "6-10") {
-      for (let v = 6; v <= 10; v += 1) out.push(v);
-    } else {
-      for (let v = 1; v <= 5; v += 1) out.push(v);
-    }
+    if (card.prismRange === "7-10") for (let v = 7; v <= 10; v += 1) out.push(v);
+    else if (card.prismRange === "4-6") for (let v = 4; v <= 6; v += 1) out.push(v);
+    else if (card.prismRange === "6-10") for (let v = 6; v <= 10; v += 1) out.push(v); // legacy support
+    else if (card.prismRange === "1-5") for (let v = 1; v <= 5; v += 1) out.push(v); // legacy support
+    else for (let v = 0; v <= 3; v += 1) out.push(v);
     return out;
   }
 
   const zeroJolly = effects.find((e) => e?.type === "zero_count_as_jolly_delta");
   const base = card.value ?? 0;
+  const cinderShift = effects.some((e) => e?.type === "cinder_plus_minus_one");
+  if (card.suit === "cinder" && cinderShift) {
+    return Array.from(new Set([base - 1, base, base + 1])).sort((a, b) => a - b);
+  }
   if (zeroJolly && base === 0 && Array.isArray(zeroJolly.amount) && zeroJolly.amount.length === 2) {
     const min = Number(zeroJolly.amount[0]) || 0;
     const max = Number(zeroJolly.amount[1]) || 0;

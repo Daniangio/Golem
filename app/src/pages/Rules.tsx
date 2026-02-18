@@ -16,7 +16,7 @@ const TERRAIN_DEMO: TerrainCard[] = [
 const PLAY_DEMO_CARDS: PulseCard[] = [
   { id: "rules:p1", suit: "steam", value: 6 },
   { id: "rules:p2", suit: "stone", value: 5 },
-  { id: "rules:p3", suit: "prism", prismRange: "1-5" },
+  { id: "rules:p3", suit: "prism", prismRange: "0-3" },
 ];
 
 export default function Rules() {

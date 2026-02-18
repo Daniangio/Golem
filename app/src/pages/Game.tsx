@@ -3,6 +3,7 @@ import { useNavigate, useParams } from "react-router-dom";
 import {
   addBot,
   confirmLocation,
+  confirmSigils,
   confirmParts,
   completeGame,
   endActions,
@@ -18,22 +19,37 @@ import {
   revokeInvite,
   removeBot,
   setLocationVote,
+  setSigilDraftAssignment,
+  setPlayedCardValueChoice,
+  togglePendingDiscardSelection,
+  confirmPendingDiscardSelection,
   setPartPick,
   startGame,
   subscribeGame,
   swapWithReservoir,
   useFuse,
   useLensOfTiphareth,
+  useSteamSigilResonance,
   type GameSummary,
 } from "../lib/firestoreGames";
 import { useAuthUser } from "../lib/useAuth";
-import { getAllLocations, getLocationById, getLocationsForStage, getPartById, type LocationCard } from "../game/locations";
+import {
+  getAllLocations,
+  getLocationById,
+  getLocationsForStage,
+  getPartById,
+  getSigilById,
+  type LocationCard,
+  type SigilDef,
+} from "../game/locations";
 import { CommunionExchangePanel, PlayerBottomPanel } from "../components/game/PlayerBottomPanel";
 import { DiscardModal, OutcomeHistoryModal, TerrainDeckModal } from "../components/game/GameModals";
 import type { PlayerSlot, Players } from "../types";
+import { bestFitSelection, pulseCardValueOptions } from "../lib/game/scoring";
 import { GameLobbyView } from "./game/GameLobbyView";
 import { ChooseLocationPhase } from "./game/phases/ChooseLocationPhase";
 import { ChoosePartsPhase } from "./game/phases/ChoosePartsPhase";
+import { ChooseSigilsPhase } from "./game/phases/ChooseSigilsPhase";
 import { PlayPhase } from "./game/phases/PlayPhase";
 import { useMobileLayout } from "./game/hooks/useMobileLayout";
 import {
@@ -47,6 +63,15 @@ import {
   seatLabel,
   seatOrder,
 } from "./game/gameUtils";
+
+type SeatValueChoiceInfo = {
+  primaryOptions: number[];
+  extraOptions: number[];
+  primarySuggested?: number;
+  extraSuggested?: number;
+  primarySelected?: number;
+  extraSelected?: number;
+};
 
 export default function Game() {
   const nav = useNavigate();
@@ -449,6 +474,29 @@ export default function Game() {
     return comp.every((id) => ids.includes(id));
   })();
 
+  const sigilDraftPool: SigilDef[] = (game.sigilDraftPool ?? [])
+    .map((id) => getSigilById(id))
+    .filter((sigil): sigil is SigilDef => Boolean(sigil));
+  const sigilAssignments = (game.sigilDraftAssignments ?? {}) as Record<string, PlayerSlot>;
+  const sigilAssignedBySeat = (() => {
+    const out: Partial<Record<PlayerSlot, string[]>> = {};
+    for (const [sigilId, seat] of Object.entries(sigilAssignments)) {
+      if (!seat) continue;
+      out[seat] = out[seat] ?? [];
+      out[seat]!.push(sigilId);
+    }
+    return out;
+  })();
+  const sigilAssignedCount = Object.keys(sigilAssignments).length;
+  const sigilMaxPicks = Math.max(0, Number(game.sigilDraftMaxPicks ?? sigilDraftPool.length) || 0);
+  const canConfirmSigils = (() => {
+    if (!isHost || game.phase !== "choose_sigils") return false;
+    if (game.sigilDraftContext === "reward_tier_1" || game.sigilDraftContext === "reward_location") {
+      return sigilAssignedCount === sigilMaxPicks;
+    }
+    return sigilAssignedCount <= sigilMaxPicks;
+  })();
+
   const controllableSeats = uid ? SLOTS.filter((s) => canControlSeat(game, uid, s)) : [];
 
   const hands = game.hands ?? {};
@@ -477,8 +525,20 @@ export default function Game() {
   const terrainRemaining = Math.max(0, terrainDeck.length - (terrainIndex + 1));
   const pulsePhase = game.pulsePhase ?? "selection";
   const isPreSelection = pulsePhase === "pre_selection";
+  const isDiscardSelectionPhase = pulsePhase === "discard_selection";
   const exchange = game.exchange ?? null;
   const exchangePending = Boolean(exchange);
+  const pendingDiscard = game.pendingDiscard ?? null;
+  const pendingDiscardRequests = pendingDiscard?.requests ?? {};
+  const pendingDiscardRequest = pendingDiscardRequests[selectedSeat] ?? null;
+  const pendingDiscardSelections = pendingDiscard?.selections ?? {};
+  const pendingDiscardSelectedIds = pendingDiscardSelections[selectedSeat] ?? [];
+  const pendingDiscardConfirmed = Boolean(pendingDiscard?.confirmed?.[selectedSeat]);
+  const pendingDiscardSeats = SLOTS.filter((seat) => Boolean(pendingDiscardRequests[seat]));
+  const allPendingDiscardsConfirmed =
+    isDiscardSelectionPhase &&
+    pendingDiscardSeats.length > 0 &&
+    pendingDiscardSeats.every((seat) => Boolean(pendingDiscard?.confirmed?.[seat]));
 
   const selectedName = selectedUid ? playerLabel(selectedUid, game.playerNames) : "Empty";
   const selectedPartId = game.partPicks?.[selectedSeat] ?? null;
@@ -489,19 +549,97 @@ export default function Game() {
     const p = all.find((x) => x.id === selectedPartId);
     return p ? { name: p.name, effect: p.effect, type: p.type } : null;
   })();
+  const selectedSeatSigils = (game.seatSigils?.[selectedSeat] ?? [])
+    .map((id) => getSigilById(id))
+    .filter((sigil): sigil is SigilDef => Boolean(sigil));
 
   const seatList = SLOTS;
   const canActForSelected = Boolean(uid && canControlSeat(game, uid, selectedSeat));
+  const canManagePendingDiscardForSelected = Boolean(
+    isDiscardSelectionPhase && pendingDiscardRequest && uid && canControlSeat(game, uid, selectedSeat)
+  );
   const effectsForSeat = (seat: PlayerSlot): any[] => {
     const out: any[] = [];
     const pid = game.partPicks?.[seat] ?? null;
     const def = getPartById(pid);
     if (def?.effects?.length) out.push(...def.effects);
+    const sigilIds = game.seatSigils?.[seat] ?? [];
+    for (const sigilId of sigilIds) {
+      const sigil = getSigilById(sigilId);
+      if (sigil?.effects?.length) out.push(...sigil.effects);
+    }
     if (location?.effects?.length) out.push(...location.effects);
     return out;
   };
   const seatHasEffect = (seat: PlayerSlot, effectType: string): boolean =>
     effectsForSeat(seat).some((e) => e && e.type === effectType);
+
+  const playedValueChoicesBySeat: Partial<Record<PlayerSlot, SeatValueChoiceInfo>> = (() => {
+    const info: Partial<Record<PlayerSlot, SeatValueChoiceInfo>> = {};
+    const optionRows: number[][] = [];
+    const rowMeta: Array<{ seat: PlayerSlot; target: "primary" | "extra" }> = [];
+
+    for (const seat of SLOTS) {
+      const entry = played[seat];
+      if (!entry?.card) continue;
+
+      const seatEffects = effectsForSeat(seat);
+      const valueDelta = seatEffects
+        .filter((e) => e?.type === "pulse_value_delta")
+        .reduce((sum, e) => sum + (Number((e as any).amount) || 0), 0);
+
+      const primaryOptions =
+        typeof entry.valueOverride === "number"
+          ? [entry.valueOverride]
+          : pulseCardValueOptions(entry.card, seatEffects).map((v) => v + valueDelta);
+
+      const seatInfo: SeatValueChoiceInfo = {
+        primaryOptions,
+        extraOptions: [],
+      };
+      if (typeof entry.valueChoice === "number" && primaryOptions.includes(entry.valueChoice)) {
+        seatInfo.primarySelected = entry.valueChoice;
+      }
+
+      optionRows.push(primaryOptions);
+      rowMeta.push({ seat, target: "primary" });
+
+      if (entry.extraCard) {
+        const extraOptions = pulseCardValueOptions(entry.extraCard, seatEffects).map((v) => v + valueDelta);
+        seatInfo.extraOptions = extraOptions;
+        if (typeof entry.extraValueChoice === "number" && extraOptions.includes(entry.extraValueChoice)) {
+          seatInfo.extraSelected = entry.extraValueChoice;
+        }
+        optionRows.push(extraOptions);
+        rowMeta.push({ seat, target: "extra" });
+      }
+
+      info[seat] = seatInfo;
+    }
+
+    if (terrain && optionRows.length) {
+      const selection = bestFitSelection(optionRows, terrain.min, terrain.max);
+      selection.chosenValues.forEach((value, index) => {
+        const meta = rowMeta[index];
+        if (!meta) return;
+        const seatInfo = info[meta.seat];
+        if (!seatInfo) return;
+        if (meta.target === "primary") seatInfo.primarySuggested = value;
+        else seatInfo.extraSuggested = value;
+      });
+    }
+
+    for (const seat of SLOTS) {
+      const seatInfo = info[seat];
+      if (!seatInfo) continue;
+      if (seatInfo.primarySuggested === undefined) seatInfo.primarySuggested = seatInfo.primaryOptions[0];
+      if (seatInfo.extraOptions.length && seatInfo.extraSuggested === undefined) {
+        seatInfo.extraSuggested = seatInfo.extraOptions[0];
+      }
+    }
+
+    return info;
+  })();
 
   const selectedSeatEffects = effectsForSeat(selectedSeat);
   const selectedHasEffect = (type: string) => selectedSeatEffects.some((e) => e && e.type === type);
@@ -578,6 +716,21 @@ export default function Game() {
     return null;
   })();
 
+  const discardStatusLine = (() => {
+    if (!isDiscardSelectionPhase || !pendingDiscard) return null;
+    const remaining = pendingDiscardSeats.filter((seat) => !pendingDiscard?.confirmed?.[seat]).length;
+    const reasonLabel =
+      pendingDiscard.reason === "acid_resonance"
+        ? "Sigil discard selection"
+        : pendingDiscard.reason === "undershoot_penalty"
+          ? "Undershoot discard selection"
+          : "Discard selection";
+    if (remaining <= 0) {
+      return isHost ? `${reasonLabel}: ready to resolve.` : `${reasonLabel}: waiting for host.`;
+    }
+    return `${reasonLabel}: ${remaining} seat${remaining === 1 ? "" : "s"} still choosing.`;
+  })();
+
   const exchangeRecipients = (() => {
     if (!exchange || exchange.status !== "awaiting_offer") return [];
     return SLOTS.filter((s) => s !== exchange.from).map((s) => {
@@ -628,6 +781,15 @@ export default function Game() {
       : null;
   const sphereImageUrl = imgSrc(carouselCurrentLocation?.sphereImage ?? location?.sphereImage ?? null);
   const locationImageUrl = imgSrc(location?.image ?? null);
+  const showBottomHandPanel =
+    game.phase !== "choose_location" && game.phase !== "choose_parts" && game.phase !== "choose_sigils";
+  const layoutRowsClass = isMobileLayout
+    ? showBottomHandPanel
+      ? "grid-rows-[7%_6%_minmax(0,1fr)_23%]"
+      : "grid-rows-[7%_6%_minmax(0,1fr)]"
+    : showBottomHandPanel
+      ? "grid-rows-[5%_5%_minmax(0,1fr)_26%]"
+      : "grid-rows-[5%_5%_minmax(0,1fr)]";
 
   async function onLocationResolveAnimationDone() {
     if (!uid || !gameId || !isPlayer || !resolvingLocationId || confirmingLocationRef.current) return;
@@ -640,13 +802,121 @@ export default function Game() {
     setResolvingLocationId(null);
   }
 
+  async function onCyclePlayedCardValue(seat: PlayerSlot, target: "primary" | "extra") {
+    return guarded(async () => {
+      if (!uid || !gameId) return;
+      const seatInfo = playedValueChoicesBySeat[seat];
+      if (!seatInfo) return;
+      const options = target === "primary" ? seatInfo.primaryOptions : seatInfo.extraOptions;
+      if (!options.length) return;
+      const current =
+        target === "primary"
+          ? seatInfo.primarySelected ?? seatInfo.primarySuggested ?? options[0]
+          : seatInfo.extraSelected ?? seatInfo.extraSuggested ?? options[0];
+      const currentIndex = Math.max(0, options.indexOf(current));
+      const nextValue = options[(currentIndex + 1) % options.length] ?? options[0];
+      await setPlayedCardValueChoice(gameId, uid, seat, target, nextValue);
+    });
+  }
+
+  const bottomMessage = isDiscardSelectionPhase ? (
+    pendingDiscardRequest ? (
+      <div className="space-y-2">
+        <div className="text-[11px] font-semibold text-white/80">{pendingDiscardRequest.label}</div>
+        <div className="text-[11px] text-white/65">
+          Selected {pendingDiscardSelectedIds.length} / required {pendingDiscardRequest.required}
+          {pendingDiscardRequest.optional > 0 ? ` (+${pendingDiscardRequest.optional} optional)` : ""}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() =>
+              void guarded(async () => {
+                if (!uid || !gameId) return;
+                await confirmPendingDiscardSelection(gameId, uid, selectedSeat, false);
+              })
+            }
+            disabled={
+              busy ||
+              !canManagePendingDiscardForSelected ||
+              pendingDiscardConfirmed ||
+              pendingDiscardSelectedIds.length < pendingDiscardRequest.required
+            }
+            className="rounded-2xl bg-emerald-500 px-3 py-1.5 text-[11px] font-extrabold text-white shadow-sm disabled:opacity-40"
+          >
+            {pendingDiscardConfirmed ? "Confirmed" : "Confirm discard"}
+          </button>
+          {pendingDiscardRequest.allowSkip && pendingDiscardRequest.required === 0 && (
+            <button
+              type="button"
+              onClick={() =>
+                void guarded(async () => {
+                  if (!uid || !gameId) return;
+                  await confirmPendingDiscardSelection(gameId, uid, selectedSeat, true);
+                })
+              }
+              disabled={busy || !canManagePendingDiscardForSelected || pendingDiscardConfirmed}
+              className="rounded-2xl bg-white/20 px-3 py-1.5 text-[11px] font-extrabold text-white shadow-sm disabled:opacity-40"
+            >
+              Skip
+            </button>
+          )}
+          {isHost && (
+            <button
+              type="button"
+              onClick={() =>
+                void guarded(async () => {
+                  if (!uid || !gameId) return;
+                  await endActions(gameId, uid);
+                })
+              }
+              disabled={busy || !allPendingDiscardsConfirmed}
+              className="rounded-2xl bg-sky-400 px-3 py-1.5 text-[11px] font-extrabold text-slate-950 shadow-sm disabled:opacity-40"
+            >
+              Resolve pulse
+            </button>
+          )}
+        </div>
+      </div>
+    ) : (
+      <div className="text-[11px] text-white/60">
+        This seat has no discard choice.{" "}
+        {isHost
+          ? allPendingDiscardsConfirmed
+            ? "You can resolve the pulse."
+            : "Wait for other seats to confirm."
+          : "Wait for other seats."}
+      </div>
+    )
+  ) : (
+    <CommunionExchangePanel
+      exchange={exchange as any}
+      pending={exchangePending}
+      canOffer={canOfferExchange}
+      canReturn={canReturnExchange}
+      recipients={exchangeRecipients}
+      fromHand={exchange?.from ? (hands[exchange.from] ?? []) : []}
+      toHand={exchange?.to ? (hands[exchange.to] ?? []) : []}
+      selectedCardId={selectedCardId}
+      busy={busy}
+      onOfferTo={(to, cardId) =>
+        void guarded(async () => {
+          if (!uid || !gameId || !exchange?.from) return;
+          await offerExchangeCard(gameId, uid, exchange.from, to, cardId);
+        })
+      }
+      onReturn={(cardId) =>
+        void guarded(async () => {
+          if (!uid || !gameId || !exchange?.to) return;
+          await returnExchangeCard(gameId, uid, exchange.to, cardId);
+        })
+      }
+    />
+  );
+
   return (
     <div className="h-full w-full text-white">
-      <div
-        className={`grid h-full gap-1 ${
-          isMobileLayout ? "grid-rows-[7%_6%_minmax(0,1fr)_23%]" : "grid-rows-[5%_5%_minmax(0,1fr)_26%]"
-        }`}
-      >
+      <div className={`grid h-full gap-1 ${layoutRowsClass}`}>
         <aside className="shrink-0 rounded-3xl bg-white/5 px-2 py-1 ring-1 ring-white/10">
           <div className="flex h-full items-center gap-2">
             {seatList.map((seat) => {
@@ -692,6 +962,8 @@ export default function Game() {
             <div className={`min-w-0 flex-1 truncate font-semibold text-white/70 ${isMobileLayout ? "text-[10px]" : "text-[11px]"}`}>
               {msg ? (
                 <span className="text-rose-200">{msg}</span>
+              ) : discardStatusLine ? (
+                <span className="text-amber-100/90">{discardStatusLine}</span>
               ) : exchangeStatusLine ? (
                 <span className="text-amber-100/90">{exchangeStatusLine}</span>
               ) : (
@@ -715,7 +987,10 @@ export default function Game() {
         <section className="relative z-10 min-h-0 rounded-2xl bg-white/5 p-1 ring-1 ring-white/10">
           <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] grid-cols-1 gap-0">
             <div className="min-h-0 space-y-1">
-              {game.phase !== "choose_location" && game.phase !== "choose_parts" && game.phase !== "play" && (
+              {game.phase !== "choose_location" &&
+                game.phase !== "choose_parts" &&
+                game.phase !== "choose_sigils" &&
+                game.phase !== "play" && (
                 <div className="min-h-0 rounded-2xl bg-gradient-to-b from-slate-900 to-slate-950 p-2 ring-1 ring-white/10">
                   {location ? (
                     <>
@@ -810,6 +1085,35 @@ export default function Game() {
                   />
                 )}
 
+                {game.phase === "choose_sigils" && (
+                  <ChooseSigilsPhase
+                    isMobileLayout={isMobileLayout}
+                    selectedSeat={selectedSeat}
+                    assigningSeat={selectedSeat}
+                    canActForSelected={isHost || canActForSelected}
+                    sigils={sigilDraftPool}
+                    assignments={sigilAssignments}
+                    assignedBySeat={sigilAssignedBySeat}
+                    context={game.sigilDraftContext ?? null}
+                    maxPicks={sigilMaxPicks}
+                    isHost={isHost}
+                    busy={busy}
+                    canConfirm={canConfirmSigils}
+                    onAssignSigil={(sigilId, seat) =>
+                      void guarded(async () => {
+                        if (!uid || !gameId) return;
+                        await setSigilDraftAssignment(gameId, uid, sigilId, seat);
+                      })
+                    }
+                    onConfirm={() =>
+                      void guarded(async () => {
+                        if (!uid || !gameId) return;
+                        await confirmSigils(gameId, uid);
+                      })
+                    }
+                  />
+                )}
+
                 {game.phase === "play" && (
                   <PlayPhase
                     isMobileLayout={isMobileLayout}
@@ -864,12 +1168,39 @@ export default function Game() {
                       })
                     }
                     played={played}
+                    valueChoicesBySeat={playedValueChoicesBySeat}
                     players={players}
                     playerNames={game.playerNames}
                     isOwnOrControlledSeat={(seat) => {
                       const seatUid = players[seat] ?? "";
                       return Boolean(uid && (seatUid === uid || (isHost && isBotUid(seatUid) && activeSeat === seat)));
                     }}
+                    canSetValueSeat={(seat) =>
+                      Boolean(
+                        pulsePhase === "actions" &&
+                          uid &&
+                          gameId &&
+                          canControlSeat(game, uid, seat)
+                      )
+                    }
+                    onCycleCardValue={(seat, target) => void onCyclePlayedCardValue(seat, target)}
+                    canSteamSigilSeat={(seat) =>
+                      Boolean(
+                        pulsePhase === "actions" &&
+                          uid &&
+                          gameId &&
+                          canControlSeat(game, uid, seat) &&
+                          seatHasEffect(seat, "once_per_chapter_resonance_as_steam") &&
+                          played[seat]?.card &&
+                          !(game.chapterAbilityUsed?.[seat]?.["once_per_chapter_resonance_as_steam"] ?? false)
+                      )
+                    }
+                    onSteamSigil={(seat) =>
+                      void guarded(async () => {
+                        if (!uid || !gameId) return;
+                        await useSteamSigilResonance(gameId, uid, seat);
+                      })
+                    }
                     canSwapR1Seat={(seat) =>
                       Boolean(
                         pulsePhase === "actions" && uid && gameId && game.reservoir && canControlSeat(game, uid, seat)
@@ -905,41 +1236,27 @@ export default function Game() {
             </div>
           </section>
 
-        {game.phase !== "choose_location" && game.phase !== "choose_parts" && (
+        {showBottomHandPanel && (
           <PlayerBottomPanel
             mobileLayout={isMobileLayout}
             seatTag={seatLabel(selectedSeat)}
             playerName={selectedName}
             viewOnly={Boolean(selectedUid && !canActForSelected)}
-            message={
-              <CommunionExchangePanel
-                exchange={exchange as any}
-                pending={exchangePending}
-                canOffer={canOfferExchange}
-                canReturn={canReturnExchange}
-                recipients={exchangeRecipients}
-                fromHand={exchange?.from ? (hands[exchange.from] ?? []) : []}
-                toHand={exchange?.to ? (hands[exchange.to] ?? []) : []}
-                selectedCardId={selectedCardId}
-                busy={busy}
-                onOfferTo={(to, cardId) =>
-                  void guarded(async () => {
-                    if (!uid || !gameId || !exchange?.from) return;
-                    await offerExchangeCard(gameId, uid, exchange.from, to, cardId);
-                  })
-                }
-                onReturn={(cardId) =>
-                  void guarded(async () => {
-                    if (!uid || !gameId || !exchange?.to) return;
-                    await returnExchangeCard(gameId, uid, exchange.to, cardId);
-                  })
-                }
-              />
-            }
+            message={bottomMessage}
             canSeeHand={canSeeSelectedHand}
             hand={canSeeSelectedHand ? selectedHand : selectedHandRaw}
+            selectedCardIds={isDiscardSelectionPhase ? pendingDiscardSelectedIds : undefined}
             selectedCardId={selectedCardId}
-            onToggleSelectCard={(cardId) => setSelectedCardId((prev) => (prev === cardId ? null : cardId))}
+            onToggleSelectCard={(cardId) => {
+              if (isDiscardSelectionPhase) {
+                void guarded(async () => {
+                  if (!uid || !gameId || !canManagePendingDiscardForSelected) return;
+                  await togglePendingDiscardSelection(gameId, uid, selectedSeat, cardId);
+                });
+                return;
+              }
+              setSelectedCardId((prev) => (prev === cardId ? null : cardId));
+            }}
             canPlaySelected={Boolean(selectedCardId && canPlayFromSelected)}
             onPlaySelected={() =>
               void guarded(async () => {
@@ -1068,6 +1385,56 @@ export default function Game() {
                 No faculty chosen yet.
               </div>
             )}
+
+            <div className="mt-3">
+              <div className="text-[11px] font-semibold text-white/60">Sigils</div>
+              {selectedSeatSigils.length ? (
+                <div className="mt-2 grid gap-2">
+                  {selectedSeatSigils.map((sigil) => {
+                    const oncePerChapterEffect = sigil.effects.find((effect) =>
+                      effect.type.startsWith("once_per_chapter_")
+                    );
+                    const used = oncePerChapterEffect
+                      ? Boolean(game.chapterAbilityUsed?.[selectedSeat]?.[oncePerChapterEffect.type])
+                      : false;
+                    return (
+                      <div
+                        key={sigil.id}
+                        className="sigil-glow-border rounded-2xl p-[1px]"
+                        style={{ ["--sigil-glow-color" as any]: sigil.color }}
+                      >
+                        <div className="rounded-2xl bg-white/5 p-3 ring-1 ring-white/10">
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="text-sm font-extrabold text-white">{sigil.name}</div>
+                            <div className="flex items-center gap-2">
+                              <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold text-white/70">
+                                Tier {sigil.tier}
+                              </span>
+                              {oncePerChapterEffect && (
+                                <span
+                                  className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ${
+                                    used
+                                      ? "bg-white/10 text-white/65 ring-white/10"
+                                      : "bg-emerald-400/20 text-emerald-200 ring-emerald-200/20"
+                                  }`}
+                                >
+                                  {used ? "Used" : "Ready"}
+                                </span>
+                              )}
+                            </div>
+                          </div>
+                          <div className="mt-2 text-[11px] leading-relaxed text-white/80">{sigil.text}</div>
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+              ) : (
+                <div className="mt-2 rounded-2xl bg-white/5 p-3 text-[11px] text-white/70 ring-1 ring-white/10">
+                  No sigils assigned.
+                </div>
+              )}
+            </div>
           </div>
         </div>
       )}

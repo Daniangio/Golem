@@ -44,8 +44,8 @@
   {
     "id": "mercurial_joints",
     "name": "The Mercurial Joints",
-    "text": "Adaptability of the Sage. Your 0 count as 0-5 Jolly cards.",
-    "effects": [{ "type": "zero_count_as_jolly_delta", "amount": [0, 5] }]
+    "text": "Adaptability of the Sage. Your 0 count as nerfed Jolly cards (0-3).",
+    "effects": [{ "type": "zero_count_as_jolly_delta", "amount": [0, 3] }]
   },
   {
     "id": "sophic_vent",
@@ -95,7 +95,7 @@
   {
     "id": "anchor_of_malkuth",
     "name": "The Anchor of Malkuth",
-    "text": "Grounding in matter. Passive: if the group Stalls by 3 or less below the Window Min, treat the pulse as Success. From the first trigger onward (including the triggering pulse), you cannot refill through Success or Resonance for the rest of the Chapter. Overshoot and Desperation refills still apply.",
+    "text": "Grounding in matter. Passive (first trigger only): the first time in a Chapter the group Stalls by 3 or less below the Window Min, treat that Pulse as Success. From that trigger onward (including the triggering pulse), you cannot refill through Success or Resonance for the rest of the Chapter. Overshoot and Desperation refills still apply.",
     "effects": [{ "type": "prevent_stall_limited_refill" }]
   },
   {

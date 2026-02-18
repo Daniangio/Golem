@@ -12,6 +12,7 @@ export function PlayerBottomPanel({
   message,
   canSeeHand,
   hand,
+  selectedCardIds,
   selectedCardId,
   onToggleSelectCard,
   canPlaySelected,
@@ -32,6 +33,7 @@ export function PlayerBottomPanel({
   message?: React.ReactNode;
   canSeeHand: boolean;
   hand: PulseCard[];
+  selectedCardIds?: string[];
   selectedCardId: string | null;
   onToggleSelectCard: (cardId: string) => void;
   canPlaySelected: boolean;
@@ -51,7 +53,7 @@ export function PlayerBottomPanel({
       <div className={`flex h-full items-end ${mobileLayout ? "gap-0.5" : "gap-2"}`}>
         {canSeeHand ? (
           hand.map((c) => {
-            const selected = selectedCardId === c.id;
+            const selected = selectedCardIds ? selectedCardIds.includes(c.id) : selectedCardId === c.id;
             return (
               <div key={c.id} className={`relative shrink-0 pt-6 ${mobileLayout ? "-ml-4 first:ml-0" : ""}`}>
                 <PulseCardMini

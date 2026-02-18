@@ -1,2 +1,42 @@
-[]
-
+[
+  {
+    "id": "sigil_cinder",
+    "tier": 1,
+    "color": "#ef4444",
+    "name": "The Sigil of Cinder",
+    "text": "The Will Unbound. Passive: when you manifest a Cinder card, its value can be shifted by -1, 0, or +1 during reveal resolution.",
+    "effects": [{ "type": "cinder_plus_minus_one" }]
+  },
+  {
+    "id": "sigil_steam",
+    "tier": 1,
+    "color": "#f8fafc",
+    "name": "The Sigil of Steam",
+    "text": "Sophic Temperance. Once per Chapter, after reveal, you may force your manifested card to count as Steam for Resonance checks.",
+    "effects": [{ "type": "once_per_chapter_resonance_as_steam" }]
+  },
+  {
+    "id": "sigil_akasha",
+    "tier": 1,
+    "color": "#38bdf8",
+    "name": "The Sigil of the Akasha",
+    "text": "Ancestral Memory. Passive: Akashic Swap costs become 0 Friction when the card you return to the Reservoir is Ether.",
+    "effects": [{ "type": "swap_friction_zero_if_replaced_suit", "suit": "ether" }]
+  },
+  {
+    "id": "sigil_stone",
+    "tier": 1,
+    "color": "#92400e",
+    "name": "The Sigil of Stone",
+    "text": "The Fixed Foundation. Once per Chapter, if the group Overshoots and you manifested Stone, Overshoot damage is prevented and the Golem gains +1 Friction instead.",
+    "effects": [{ "type": "once_per_chapter_overshoot_stone_to_friction" }]
+  },
+  {
+    "id": "sigil_acid",
+    "tier": 1,
+    "color": "#22c55e",
+    "name": "The Sigil of Acid",
+    "text": "Corrosive Transmutation. Passive: when you trigger a Resonance refill with Acid, discard 2 random cards from your hand first, then refill to capacity.",
+    "effects": [{ "type": "acid_resonance_discard_two_then_refill" }]
+  }
+]

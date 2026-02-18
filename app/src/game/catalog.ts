@@ -35,7 +35,13 @@ export type Effect =
   | { type: "reservoir_count"; count: number }
   | { type: "success_refill_highest_else_resonance" }
   | { type: "friction_unless_two_ether_or_prism"; amount: number; threshold?: number }
-  | { type: "disable_resonance_refill" };
+  | { type: "disable_resonance_refill" }
+  // Sigils
+  | { type: "cinder_plus_minus_one" }
+  | { type: "once_per_chapter_resonance_as_steam" }
+  | { type: "swap_friction_zero_if_replaced_suit"; suit: Exclude<PulseSuit, "prism"> }
+  | { type: "once_per_chapter_overshoot_stone_to_friction" }
+  | { type: "acid_resonance_discard_two_then_refill" };
 
 export type FacultyDef = {
   id: string;
@@ -46,9 +52,17 @@ export type FacultyDef = {
 
 export type SigilDef = {
   id: string;
+  tier: number;
+  color: string;
   name: string;
   text: string;
   effects: Effect[];
+};
+
+export type SigilReward = {
+  tier: number;
+  reveal: number;
+  choose: number;
 };
 
 export type LocationDef = {
@@ -60,6 +74,7 @@ export type LocationDef = {
   flavor: string;
   rule: string;
   rewards: string[];
+  sigilReward?: SigilReward;
   compulsoryFacultyIds: string[];
   optionalFacultyIds: string[];
   effects: Effect[];
@@ -85,6 +100,7 @@ export type LocationCard = {
   optional: LocationFaculty[];
   rule: string;
   rewards: string[];
+  sigilReward?: SigilReward;
   effects: Effect[];
 };
 
@@ -98,6 +114,7 @@ type LocationDefRaw = {
   flavor: string;
   rule: string;
   rewards?: string[];
+  sigilReward?: SigilReward;
   compulsoryFacultyIds?: string[];
   optionalFacultyIds?: string[];
   compulsoryPartIds?: string[];
@@ -168,6 +185,7 @@ function toLocation(def: LocationDefRaw): LocationCard {
     optional: optional.map((id) => toLocationFaculty(id, "optional")),
     rule: def.rule,
     rewards: def.rewards ?? [],
+    sigilReward: def.sigilReward,
     effects: def.effects ?? [],
   };
 }

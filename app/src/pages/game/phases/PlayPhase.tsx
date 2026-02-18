@@ -34,9 +34,26 @@ type PlayPhaseProps = {
   exchangePending: boolean;
   onEndActions: () => void;
   played: GameDoc["played"];
+  valueChoicesBySeat: Partial<
+    Record<
+      PlayerSlot,
+      {
+        primaryOptions: number[];
+        extraOptions: number[];
+        primarySuggested?: number;
+        extraSuggested?: number;
+        primarySelected?: number;
+        extraSelected?: number;
+      }
+    >
+  >;
   players: Players;
   playerNames?: Record<string, string>;
   isOwnOrControlledSeat: (seat: PlayerSlot) => boolean;
+  canSetValueSeat: (seat: PlayerSlot) => boolean;
+  onCycleCardValue: (seat: PlayerSlot, target: "primary" | "extra") => void;
+  canSteamSigilSeat: (seat: PlayerSlot) => boolean;
+  onSteamSigil: (seat: PlayerSlot) => void;
   canSwapR1Seat: (seat: PlayerSlot) => boolean;
   canSwapR2Seat: (seat: PlayerSlot) => boolean;
   canFuseSeat: (seat: PlayerSlot) => boolean;
@@ -73,9 +90,14 @@ export function PlayPhase({
   exchangePending,
   onEndActions,
   played,
+  valueChoicesBySeat,
   players,
   playerNames,
   isOwnOrControlledSeat,
+  canSetValueSeat,
+  onCycleCardValue,
+  canSteamSigilSeat,
+  onSteamSigil,
   canSwapR1Seat,
   canSwapR2Seat,
   canFuseSeat,
@@ -86,7 +108,8 @@ export function PlayPhase({
   const [actionsSeat, setActionsSeat] = useState<PlayerSlot | null>(null);
 
   const hasAnyAction = (seat: PlayerSlot): boolean =>
-    Boolean(played?.[seat]?.card) && (canSwapR1Seat(seat) || canSwapR2Seat(seat) || canFuseSeat(seat));
+    Boolean(played?.[seat]?.card) &&
+    (canSwapR1Seat(seat) || canSwapR2Seat(seat) || canFuseSeat(seat) || canSteamSigilSeat(seat));
 
   const actionsTitle = useMemo(() => {
     if (!actionsSeat) return null;
@@ -99,6 +122,7 @@ export function PlayPhase({
     <div className="mt-1 grid min-h-0 grid-cols-3 gap-1.5">
       {SLOTS.map((seat) => {
         const entry = played?.[seat];
+        const valueChoice = valueChoicesBySeat?.[seat];
         const seatUid = players[seat] ?? "";
         const seatName = seatUid ? playerLabel(seatUid, playerNames) : seatLabel(seat);
         const revealedToAll = Boolean(entry?.revealedDuringSelection && pulsePhase === "selection");
@@ -110,6 +134,35 @@ export function PlayPhase({
         const fused = entry?.valueOverride === 0;
         const canOpenActions = pulsePhase === "actions" && hasAnyAction(seat);
         const isActionSeat = actionsSeat === seat;
+        const canSetSeatValue = canSetValueSeat(seat);
+        const primaryOptions = valueChoice?.primaryOptions ?? [];
+        const extraOptions = valueChoice?.extraOptions ?? [];
+        const primaryDisplayValue =
+          entry?.card
+            ? typeof entry.valueOverride === "number"
+              ? entry.valueOverride
+              : (valueChoice?.primarySelected ?? valueChoice?.primarySuggested)
+            : null;
+        const extraDisplayValue = entry?.extraCard ? (valueChoice?.extraSelected ?? valueChoice?.extraSuggested) : null;
+        const canCyclePrimary =
+          pulsePhase === "actions" &&
+          canSetSeatValue &&
+          typeof entry?.valueOverride !== "number" &&
+          primaryOptions.length > 1;
+        const canCycleExtra =
+          pulsePhase === "actions" &&
+          canSetSeatValue &&
+          Boolean(entry?.extraCard) &&
+          extraOptions.length > 1;
+        const primaryAuto =
+          typeof entry?.valueOverride !== "number" &&
+          primaryDisplayValue !== null &&
+          primaryOptions.length > 1 &&
+          valueChoice?.primarySelected === undefined;
+        const extraAuto =
+          extraDisplayValue !== null &&
+          extraOptions.length > 1 &&
+          valueChoice?.extraSelected === undefined;
 
         return (
           <button
@@ -137,18 +190,88 @@ export function PlayPhase({
                   )
                 ) : (
                   <div className="flex flex-row items-center gap-1">
-                    <div className="relative pt-1">
-                      <PulseCardMini card={entry.card} selected={false} lift="none" onClick={() => {}} />
+                    <div
+                      className="relative pt-1"
+                      onClick={(event) => {
+                        if (canCyclePrimary) event.stopPropagation();
+                      }}
+                    >
+                      <PulseCardMini
+                        card={entry.card}
+                        selected={false}
+                        lift="none"
+                        onClick={() => {
+                          if (canCyclePrimary) onCycleCardValue(seat, "primary");
+                        }}
+                      />
                       {fused && (
                         <div className="pointer-events-none absolute bottom-2 right-2 rounded-full bg-fuchsia-500/30 px-2 py-0.5 text-[11px] font-extrabold text-fuchsia-100 ring-1 ring-fuchsia-200/20">
                           0
                         </div>
                       )}
+                      {entry.resonanceSuitOverride && (
+                        <div className="pointer-events-none absolute bottom-2 left-2 rounded-full bg-sky-500/30 px-2 py-0.5 text-[10px] font-extrabold text-sky-100 ring-1 ring-sky-200/20">
+                          Steam
+                        </div>
+                      )}
+                      {primaryDisplayValue !== null && (
+                        <div
+                          className={`absolute left-1/2 top-0 -translate-x-1/2 rounded-full px-2 py-0.5 text-[10px] font-extrabold shadow ring-1 ${
+                            canCyclePrimary
+                              ? "cursor-pointer bg-emerald-400 text-slate-950 ring-emerald-200/60"
+                              : "bg-slate-900/85 text-white/90 ring-white/20"
+                          }`}
+                          onClick={(event) => {
+                            if (!canCyclePrimary) return;
+                            event.stopPropagation();
+                            onCycleCardValue(seat, "primary");
+                          }}
+                          title={
+                            canCyclePrimary
+                              ? "Click card or badge to cycle value"
+                              : "Selected value used in resolution"
+                          }
+                        >
+                          {primaryDisplayValue}
+                          {primaryAuto ? " • auto" : ""}
+                        </div>
+                      )}
                     </div>
                     {entry.extraCard && (
-                      <div className="flex flex-col items-center gap-1">
+                      <div
+                        className="relative flex flex-col items-center gap-1"
+                        onClick={(event) => {
+                          if (canCycleExtra) event.stopPropagation();
+                        }}
+                      >
                         <div className="text-[10px] font-semibold text-emerald-200/80">Overflow</div>
-                        <PulseCardMini card={entry.extraCard} selected={false} lift="none" className="scale-[0.9]" onClick={() => {}} />
+                        <PulseCardMini
+                          card={entry.extraCard}
+                          selected={false}
+                          lift="none"
+                          className="scale-[0.9]"
+                          onClick={() => {
+                            if (canCycleExtra) onCycleCardValue(seat, "extra");
+                          }}
+                        />
+                        {extraDisplayValue !== null && (
+                          <div
+                            className={`absolute left-1/2 top-4 -translate-x-1/2 rounded-full px-2 py-0.5 text-[10px] font-extrabold shadow ring-1 ${
+                              canCycleExtra
+                                ? "cursor-pointer bg-emerald-400 text-slate-950 ring-emerald-200/60"
+                                : "bg-slate-900/85 text-white/90 ring-white/20"
+                            }`}
+                            onClick={(event) => {
+                              if (!canCycleExtra) return;
+                              event.stopPropagation();
+                              onCycleCardValue(seat, "extra");
+                            }}
+                            title={canCycleExtra ? "Click card or badge to cycle value" : "Selected value used in resolution"}
+                          >
+                            {extraDisplayValue}
+                            {extraAuto ? " • auto" : ""}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
@@ -322,6 +445,19 @@ export function PlayPhase({
                   className="rounded-2xl bg-fuchsia-400 px-3 py-2 text-[12px] font-extrabold text-slate-950 shadow disabled:opacity-40"
                 >
                   Dissolve to 0
+                </button>
+              )}
+              {canSteamSigilSeat(actionsSeat) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onSteamSigil(actionsSeat);
+                    setActionsSeat(null);
+                  }}
+                  disabled={busy}
+                  className="rounded-2xl bg-sky-300 px-3 py-2 text-[12px] font-extrabold text-slate-950 shadow disabled:opacity-40"
+                >
+                  Force Steam Resonance
                 </button>
               )}
               {!hasAnyAction(actionsSeat) && <div className="text-[11px] text-white/60">No action available.</div>}

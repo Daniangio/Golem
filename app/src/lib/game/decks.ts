@@ -10,8 +10,9 @@ export function makePulseDeck(): PulseCard[] {
       cards.push({ id: `${suit}:${v}`, suit, value: v });
     }
   }
+  const prismRanges: Array<PulseCard["prismRange"]> = ["0-3", "4-6", "7-10", "0-3", "4-6"];
   for (let i = 1; i <= 5; i += 1) {
-    const range: PulseCard["prismRange"] = i % 2 === 0 ? "1-5" : "6-10";
+    const range = prismRanges[i - 1] ?? "0-3";
     cards.push({ id: `prism:${i}:${range}`, suit: "prism", prismRange: range });
   }
   return cards;

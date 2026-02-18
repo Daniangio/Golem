@@ -85,7 +85,8 @@
     "image": "/images/locations/3-Hod-The Geometric Order.png",
     "flavor": "“The Demiurge tests the Vessel with rigid patterns. In the hall of geometry, only symmetry allows the spirit to pass.”",
     "rule": "Symmetric Vibration: If the total vibration is an Even number, reduce Friction by 1 (Minimum 0). If it is Odd, add +1 Friction.",
-    "rewards": [],
+    "rewards": ["Sigil Draft: reveal 3 Tier-1 Sigils, choose 1."],
+    "sigilReward": { "tier": 1, "reveal": 3, "choose": 1 },
     "compulsoryPartIds": ["supernal_overflow", "veiled_eye"],
     "optionalPartIds": ["harmonized_memory", "breath_of_dissolution"],
     "effects": [{ "type": "friction_by_total_parity", "evenAmount": -1, "oddAmount": 1 }]
@@ -98,7 +99,8 @@
     "image": "/images/locations/3-Hod-The Unforgiving Logic.png",
     "flavor": "“A cold, crystalline architecture where there is no room for hesitation. Here, Apathy is as destructive as Pride.”",
     "rule": "Binary Consequence: Any Stall (Undershoot) result is considered as a Pride (Overshoot).",
-    "rewards": [],
+    "rewards": ["Sigil Draft: reveal 3 Tier-1 Sigils, choose 1."],
+    "sigilReward": { "tier": 1, "reveal": 3, "choose": 1 },
     "compulsoryPartIds": ["unveiled_radiance", "reinforced_hull"],
     "optionalPartIds": ["breath_of_dissolution", "supernal_overflow"],
     "effects": [{ "type": "undershoot_counts_as_overshoot" }]
@@ -111,7 +113,8 @@
     "image": "/images/locations/3-Hod-The Forbidden Prism.png",
     "flavor": "“Reason demands the exclusion of the unknown. In the halls of pure intellect, the shifting nature of the Prism is considered heresy.”",
     "rule": "The Labyrinth of Definition: Prism (Jolly) cards lose their variable nature; they are treated as fixed value 0 and provide no Suit resonance.",
-    "rewards": [],
+    "rewards": ["Sigil Draft: reveal 3 Tier-1 Sigils, choose 1."],
+    "sigilReward": { "tier": 1, "reveal": 3, "choose": 1 },
     "compulsoryPartIds": ["leadened_shackle", "fractured_pillar", "scales_of_geburah"],
     "optionalPartIds": [],
     "effects": [{ "type": "prism_fixed_zero" }]

@@ -5,6 +5,7 @@ export type GameMode = "campaign" | "single_location";
 export type GamePhase =
   | "setup" // legacy (pre-start)
   | "choose_location"
+  | "choose_sigils"
   | "choose_parts"
   | "play"
   | "assign_parts"; // legacy
@@ -27,7 +28,7 @@ export type PulseCard = {
   id: string;
   suit: PulseSuit;
   value?: number; // 0-10 (not used for Prism)
-  prismRange?: "1-5" | "6-10";
+  prismRange?: "0-3" | "4-6" | "7-10" | "1-5" | "6-10"; // old ranges kept for backward compatibility
 };
 
 export type SeatHands = Partial<Record<PlayerSlot, PulseCard[]>>;
@@ -46,7 +47,7 @@ export type TerrainDeckType =
   | "sphere_2"
   | "sphere_3";
 
-export type PulsePhase = "pre_selection" | "selection" | "actions";
+export type PulsePhase = "pre_selection" | "selection" | "actions" | "discard_selection";
 
 // Per-sphere once-only abilities keyed by ability/effect id.
 export type ChapterAbilityUsed = Partial<Record<PlayerSlot, Partial<Record<string, boolean>>>>;
@@ -57,12 +58,31 @@ export type PlayedCard = {
   card: PulseCard;
   extraCard?: PulseCard;
   valueOverride?: number; // e.g. Fuse -> 0
+  valueChoice?: number; // explicit chosen value for variable primary card
+  extraValueChoice?: number; // explicit chosen value for variable extra card
+  resonanceSuitOverride?: Exclude<PulseSuit, "prism">; // e.g. Sigil of Steam
   revealedDuringSelection?: boolean; // Unveiled Radiance
   bySeat: PlayerSlot;
   at: any; // serverTimestamp
 };
 
 export type PlayedCards = Partial<Record<PlayerSlot, PlayedCard>>;
+
+export type PendingDiscardReason = "acid_resonance" | "undershoot_penalty";
+
+export type PendingDiscardSeatRequest = {
+  required: number;
+  optional: number;
+  allowSkip: boolean;
+  label: string;
+};
+
+export type PendingDiscardState = {
+  reason: PendingDiscardReason;
+  requests: Partial<Record<PlayerSlot, PendingDiscardSeatRequest>>;
+  selections?: Partial<Record<PlayerSlot, string[]>>;
+  confirmed?: Partial<Record<PlayerSlot, boolean>>;
+};
 
 export type GameDoc = {
   createdAt?: any; // serverTimestamp
@@ -91,6 +111,12 @@ export type GameDoc = {
 
   phase?: GamePhase;
   partPicks?: SeatVotes; // slot -> partId
+  seatSigils?: Partial<Record<PlayerSlot, string[]>>;
+  sigilDraftPool?: string[]; // currently revealed sigils to draft from
+  sigilDraftAssignments?: Partial<Record<string, PlayerSlot>>; // sigilId -> seat
+  sigilDraftTier?: number | null;
+  sigilDraftMaxPicks?: number;
+  sigilDraftContext?: "reward_tier_1" | "reward_location" | "single_location_setup";
 
   // Cards (v0: stored in the game doc; later we may split private hands)
   pulseDeck?: PulseCard[];
@@ -119,6 +145,7 @@ export type GameDoc = {
   played?: PlayedCards;
   chapterAbilityUsed?: ChapterAbilityUsed; // once-per-chapter part abilities
   chapterGlobalUsed?: ChapterGlobalUsed; // once-per-chapter global/location effects
+  pendingDiscard?: PendingDiscardState;
   lastOutcome?: {
     result: "success" | "undershoot" | "overshoot";
     total: number;

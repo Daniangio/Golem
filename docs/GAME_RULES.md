@@ -10,7 +10,7 @@ The Pulse Deck (60 Cards): * 5 Suits: Cinder (Red), Stone (Brown), Ether (Blue),
 
 Values: 0–10 in each suit (55 cards).
 
-5 Prism (Jolly) Cards: Wild vibrations with variable ranges ($1-5$ or $6-10$).
+5 Prism (Jolly) Cards: Wild vibrations with variable ranges ($0-3$, $4-6$, or $7-10$).
 
 Terrain Decks: Five difficulty-tiered decks ($15$ cards each) representing the Stability Windows of the material world.
 
@@ -113,7 +113,7 @@ Important interactions:
 
 - The Resonance Rule is evaluated in step 5, right after outcome commitment.
 - The Fractured Pillar resolves in step 6 (after any Resonance refill).
-- The Anchor of Malkuth lock applies from its first trigger onward, including the triggering pulse: that seat cannot refill through Success or Resonance for the rest of the Chapter.
+- The Anchor of Malkuth converts Stall to Success only on its first qualifying trigger in the Chapter. From that trigger onward, including the triggering pulse, that seat cannot refill through Success or Resonance for the rest of the Chapter.
 
 4. The Akashic Swap
 
