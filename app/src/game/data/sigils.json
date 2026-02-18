@@ -36,7 +36,7 @@
     "tier": 1,
     "color": "#22c55e",
     "name": "The Sigil of Acid",
-    "text": "Corrosive Transmutation. Passive: when you trigger a Resonance refill with Acid, discard 2 random cards from your hand first, then refill to capacity.",
+    "text": "Corrosive Transmutation. Passive: when your Acid manifestation matches the Law and triggers Resonance refill, you may discard up to 2 cards from your hand before refilling to capacity.",
     "effects": [{ "type": "acid_resonance_discard_two_then_refill" }]
   }
 ]

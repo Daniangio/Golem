@@ -1737,19 +1737,21 @@ export async function endActions(gameId: string, actorUid: string) {
       if ((source === "success" || source === "resonance") && anchorLocked(seat)) return;
       if (blocksRefill(seat)) return;
 
-      if (source === "resonance") {
+      const isResonanceRefill =
+        source === "resonance" || (source === "success" && matchesTerrainSuit(seat));
+      if (isResonanceRefill) {
         const seatEffects = effectsForSeat(data, seat);
         const entry = played[seat];
         const acidResonanceSigil = hasEffect(seatEffects, "acid_resonance_discard_two_then_refill");
         if (acidResonanceSigil && entry && seatPlayedSuit(entry as any, "acid")) {
           const h = [...(hands[seat] ?? [])];
-          const discardCount = Math.min(2, h.length);
-          if (discardCount > 0) {
+          const maxOptionalDiscard = Math.min(2, h.length);
+          if (maxOptionalDiscard > 0) {
             const request: PendingDiscardSeatRequest = {
-              required: discardCount,
-              optional: 0,
-              allowSkip: false,
-              label: "Sigil of Acid: choose cards to discard before Resonance refill.",
+              required: 0,
+              optional: maxOptionalDiscard,
+              allowSkip: true,
+              label: "Sigil of Acid: you may discard up to 2 cards before Resonance refill.",
             };
             acidDiscardRequests[seat] = request;
             if (pendingReason !== "acid_resonance") {
