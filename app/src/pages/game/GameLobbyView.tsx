@@ -93,8 +93,27 @@ export function GameLobbyView({
               <div className="mt-1 text-sm font-semibold text-slate-900">{game.visibility}</div>
               <div className="mt-2 text-xs text-slate-500">Run type</div>
               <div className="mt-1 text-sm font-semibold text-slate-900">
-                {game.gameMode === "single_location" ? "Single location" : "Campaign"}
+                {game.gameMode === "single_location"
+                  ? "Single location"
+                  : game.gameMode === "tutorial"
+                    ? "Tutorial"
+                    : "Campaign"}
               </div>
+              {game.gameMode === "campaign" && (
+                <>
+                  <div className="mt-2 text-xs text-slate-500">Campaign flow</div>
+                  <div className="mt-1 text-sm font-semibold text-slate-900">
+                    {game.campaignVariant === "random_choice"
+                      ? "Random each sphere"
+                      : game.campaignVariant === "preset_path"
+                        ? "Preset path"
+                        : "Free choice"}
+                  </div>
+                  {game.campaignVariant === "random_choice" && game.campaignRandomFaculties && (
+                    <div className="mt-1 text-xs font-semibold text-slate-600">Faculties: random assignment enabled</div>
+                  )}
+                </>
+              )}
               <div className="mt-2 text-xs text-slate-500">Status</div>
               <div className="mt-1 text-sm font-semibold text-slate-900">{game.status}</div>
             </div>

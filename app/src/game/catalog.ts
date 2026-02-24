@@ -1,11 +1,13 @@
 import locationsRaw from "./data/locations.json";
 import facultiesRaw from "./data/faculties.json";
 import sigilsRaw from "./data/sigils.json";
+import campaignPathsRaw from "./data/campaignPaths.json";
 import type { PulseSuit, TerrainDeckType } from "../types";
 export type { TerrainDeckType } from "../types";
 
 export type FacultyType = "compulsory" | "optional";
 export type Effect =
+  | { type: "hand_capacity_set"; amount: number }
   | { type: "hand_capacity_delta"; amount: number; scope?: "chapter" | "sphere" }
   | { type: "disable_match_refill_on_failure" }
   | { type: "once_per_chapter_extra_card_after_reveal" }
@@ -16,6 +18,7 @@ export type Effect =
   | { type: "prevent_stall_limited_refill" }
   | { type: "median_heal_boundary_friction" }
   | { type: "pulse_value_delta"; amount: number }
+  | { type: "pulse_value_multiplier"; amount: number }
   | { type: "friction_delta_if_played_suit"; suit: Exclude<PulseSuit, "prism">; amount: number }
   | { type: "discard_cards_on_undershoot"; count: number }
   | { type: "peek_terrain_deck" }
@@ -24,12 +27,23 @@ export type Effect =
   | { type: "reveal_card_during_selection" }
   | { type: "mandatory_card_exchange_after_terrain_reveal" }
   | { type: "free_swap_on_suit_resonance" }
+  | { type: "pay_friction_double_manifested_total" }
   // Location rules
   | { type: "first_stall_refill_all" }
   | { type: "no_refill_if_played_suit"; suit: Exclude<PulseSuit, "prism"> }
   | { type: "friction_if_no_terrain_match"; amount: number }
   | { type: "friction_by_total_parity"; evenAmount: number; oddAmount: number }
   | { type: "undershoot_counts_as_overshoot" }
+  | { type: "selection_unbounded_cards" }
+  | { type: "pre_selection_pass_to_conductor"; countPerDonor?: number }
+  | { type: "conductor_plays_three_cards" }
+  | { type: "requires_consecutive_successes"; count: number }
+  | { type: "invert_suits_value_sign"; suits?: Array<Exclude<PulseSuit, "prism">> }
+  | { type: "rotate_faculties_clockwise_on_success" }
+  | { type: "reveal_three_terrains" }
+  | { type: "success_if_matches_none" }
+  | { type: "follow_suit_or_friction"; friction: number }
+  | { type: "must_play_first_faceup" }
   | { type: "prism_fixed_zero" }
   | { type: "swap_friction_cost"; amount: number }
   | { type: "reservoir_count"; count: number }
@@ -65,10 +79,27 @@ export type SigilReward = {
   choose: number;
 };
 
+export type CampaignPathDifficulty = "easy" | "normal" | "hard";
+
+export type CampaignPathStep = {
+  sphere: number;
+  locationId: string;
+};
+
+export type CampaignPathDef = {
+  id: string;
+  name: string;
+  difficulty: CampaignPathDifficulty;
+  lore: string;
+  steps: CampaignPathStep[];
+};
+
 export type LocationDef = {
   id: string;
   sphere: number;
+  tutorialOnly?: boolean;
   terrainDeckType?: TerrainDeckType;
+  terrainCardsPerRun?: number;
   name: string;
   image?: string;
   flavor: string;
@@ -96,6 +127,7 @@ export type LocationCard = {
   flavor: string;
   sphere: number;
   terrainDeckType: TerrainDeckType;
+  terrainCardsPerRun?: number;
   compulsory: LocationFaculty[];
   optional: LocationFaculty[];
   rule: string;
@@ -108,7 +140,9 @@ type LocationDefRaw = {
   id: string;
   stage?: number;
   sphere?: number;
+  tutorialOnly?: boolean;
   terrainDeckType?: TerrainDeckType;
+  terrainCardsPerRun?: number;
   name: string;
   image?: string;
   flavor: string;
@@ -125,12 +159,16 @@ type LocationDefRaw = {
 const FACULTIES: FacultyDef[] = facultiesRaw as any;
 const SIGILS: SigilDef[] = sigilsRaw as any;
 const LOCATIONS_RAW: LocationDefRaw[] = locationsRaw as any;
+const CAMPAIGN_PATHS: CampaignPathDef[] = campaignPathsRaw as any;
 
 const facultyById = new Map<string, FacultyDef>();
 for (const f of FACULTIES) facultyById.set(f.id, f);
 
 const sigilById = new Map<string, SigilDef>();
 for (const s of SIGILS) sigilById.set(s.id, s);
+
+const campaignPathById = new Map<string, CampaignPathDef>();
+for (const p of CAMPAIGN_PATHS) campaignPathById.set(p.id, p);
 
 function toLocationFaculty(facultyId: string, type: FacultyType): LocationFaculty {
   const f = facultyById.get(facultyId);
@@ -163,6 +201,8 @@ function defaultLocationImagePath(sphere: number, name: string): string | null {
 }
 
 function defaultTerrainDeckType(sphere: number): TerrainDeckType {
+  if (sphere >= 8) return "sphere_8_9";
+  if (sphere >= 7) return "sphere_7";
   if (sphere >= 5) return "sphere_5_6";
   if (sphere >= 3) return "sphere_3_4";
   return "sphere_1_2";
@@ -181,6 +221,7 @@ function toLocation(def: LocationDefRaw): LocationCard {
     flavor: def.flavor,
     sphere,
     terrainDeckType: def.terrainDeckType ?? defaultTerrainDeckType(sphere),
+    terrainCardsPerRun: def.terrainCardsPerRun,
     compulsory: compulsory.map((id) => toLocationFaculty(id, "compulsory")),
     optional: optional.map((id) => toLocationFaculty(id, "optional")),
     rule: def.rule,
@@ -191,11 +232,11 @@ function toLocation(def: LocationDefRaw): LocationCard {
 }
 
 export function getLocationsForSphere(sphere: number): LocationCard[] {
-  return LOCATIONS_RAW.filter((l) => (l.sphere ?? l.stage ?? 1) === sphere).map(toLocation);
+  return LOCATIONS_RAW.filter((l) => !l.tutorialOnly && (l.sphere ?? l.stage ?? 1) === sphere).map(toLocation);
 }
 
 export function getAllLocations(): LocationCard[] {
-  return LOCATIONS_RAW.map(toLocation);
+  return LOCATIONS_RAW.filter((l) => !l.tutorialOnly).map(toLocation);
 }
 
 // Back-compat naming: older code calls these "stages".
@@ -236,4 +277,25 @@ export function getAllSigils(): SigilDef[] {
 
 export function getAllUpgrades(): SigilDef[] {
   return getAllSigils();
+}
+
+export function getAllCampaignPaths(): CampaignPathDef[] {
+  return CAMPAIGN_PATHS.map((path) => ({ ...path, steps: [...(path.steps ?? [])] }));
+}
+
+export function getCampaignPathById(id: string | undefined | null): CampaignPathDef | null {
+  if (!id) return null;
+  const path = campaignPathById.get(id);
+  if (!path) return null;
+  return { ...path, steps: [...(path.steps ?? [])] };
+}
+
+export function getCampaignPathLocationForSphere(pathId: string | undefined | null, sphere: number): string | null {
+  const path = getCampaignPathById(pathId);
+  if (!path) return null;
+  const step = path.steps.find((s) => Number(s.sphere) === Number(sphere));
+  if (!step?.locationId) return null;
+  const location = getLocationById(step.locationId);
+  if (!location) return null;
+  return location.id;
 }

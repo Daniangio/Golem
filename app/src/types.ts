@@ -1,6 +1,7 @@
 export type GameStatus = "lobby" | "active" | "completed";
 export type GameVisibility = "public" | "private";
-export type GameMode = "campaign" | "single_location";
+export type GameMode = "campaign" | "single_location" | "tutorial";
+export type CampaignVariant = "free_choice" | "random_choice" | "preset_path";
 
 export type GamePhase =
   | "setup" // legacy (pre-start)
@@ -43,6 +44,8 @@ export type TerrainDeckType =
   | "sphere_1_2"
   | "sphere_3_4"
   | "sphere_5_6"
+  | "sphere_7"
+  | "sphere_8_9"
   | "sphere_1"
   | "sphere_2"
   | "sphere_3";
@@ -52,11 +55,13 @@ export type PulsePhase = "pre_selection" | "selection" | "actions" | "discard_se
 // Per-sphere once-only abilities keyed by ability/effect id.
 export type ChapterAbilityUsed = Partial<Record<PlayerSlot, Partial<Record<string, boolean>>>>;
 
-export type ChapterGlobalUsed = Partial<Record<string, boolean>>;
+export type ChapterGlobalUsed = Partial<Record<string, boolean | number>>;
 
 export type PlayedCard = {
   card: PulseCard;
   extraCard?: PulseCard;
+  additionalCards?: PulseCard[];
+  totalMultiplier?: number; // e.g. Harmonic Amplifier -> x2 total
   valueOverride?: number; // e.g. Fuse -> 0
   valueChoice?: number; // explicit chosen value for variable primary card
   extraValueChoice?: number; // explicit chosen value for variable extra card
@@ -92,6 +97,9 @@ export type GameDoc = {
   status: GameStatus;
   visibility: GameVisibility;
   gameMode?: GameMode;
+  campaignVariant?: CampaignVariant;
+  campaignRandomFaculties?: boolean;
+  campaignPathId?: string | null;
   maxPlayers: 3;
 
   players: Players;
@@ -136,6 +144,7 @@ export type GameDoc = {
   } | null;
   skipThisPulse?: Partial<Record<PlayerSlot, boolean>>;
   skipNextPulse?: Partial<Record<PlayerSlot, boolean>>;
+  conductorPasses?: Partial<Record<PlayerSlot, boolean>>;
 
   terrainDeck?: TerrainCard[];
   terrainDeckType?: TerrainDeckType;

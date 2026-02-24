@@ -1,65 +1,108 @@
 {
   "sphere_1_2": [
-    { "suit": "cinder", "min": 9, "max": 18 },
-    { "suit": "cinder", "min": 10, "max": 19 },
-    { "suit": "cinder", "min": 11, "max": 20 },
-
-    { "suit": "stone", "min": 8, "max": 16 },
-    { "suit": "stone", "min": 9, "max": 17 },
-    { "suit": "stone", "min": 10, "max": 18 },
-
-    { "suit": "ether", "min": 7, "max": 15 },
+    { "suit": "ether", "min": 5, "max": 13 },
     { "suit": "ether", "min": 8, "max": 16 },
-    { "suit": "ether", "min": 9, "max": 17 },
+    { "suit": "ether", "min": 11, "max": 19 },
 
-    { "suit": "steam", "min": 8, "max": 17 },
-    { "suit": "steam", "min": 9, "max": 18 },
-    { "suit": "steam", "min": 10, "max": 19 },
+    { "suit": "steam", "min": 4, "max": 12 },
+    { "suit": "steam", "min": 6, "max": 14 },
+    { "suit": "steam", "min": 12, "max": 20 },
 
+    { "suit": "acid", "min": 7, "max": 15 },
+    { "suit": "acid", "min": 8, "max": 16 },
     { "suit": "acid", "min": 9, "max": 17 },
-    { "suit": "acid", "min": 10, "max": 18 },
-    { "suit": "acid", "min": 11, "max": 19 }
+    
+    { "suit": "stone", "min": 6, "max": 14 },
+    { "suit": "stone", "min": 10, "max": 18 },
+    { "suit": "stone", "min": 14, "max": 22 },
+    
+    { "suit": "cinder", "min": 1, "max": 10 },
+    { "suit": "cinder", "min": 8, "max": 16 },
+    { "suit": "cinder", "min": 15, "max": 24 }
+
   ],
   "sphere_3_4": [
-    { "suit": "cinder", "min": 12, "max": 19 },
-    { "suit": "cinder", "min": 13, "max": 20 },
-    { "suit": "cinder", "min": 14, "max": 21 },
-
-    { "suit": "stone", "min": 11, "max": 17 },
-    { "suit": "stone", "min": 12, "max": 18 },
-    { "suit": "stone", "min": 13, "max": 19 },
-
     { "suit": "ether", "min": 10, "max": 16 },
     { "suit": "ether", "min": 11, "max": 17 },
     { "suit": "ether", "min": 12, "max": 18 },
 
-    { "suit": "steam", "min": 11, "max": 18 },
-    { "suit": "steam", "min": 12, "max": 19 },
-    { "suit": "steam", "min": 13, "max": 20 },
+    { "suit": "steam", "min": 11, "max": 17 },
+    { "suit": "steam", "min": 12, "max": 18 },
+    { "suit": "steam", "min": 13, "max": 19 },
 
     { "suit": "acid", "min": 12, "max": 18 },
     { "suit": "acid", "min": 13, "max": 19 },
-    { "suit": "acid", "min": 14, "max": 20 }
+    { "suit": "acid", "min": 14, "max": 20 },
+
+    { "suit": "stone", "min": 13, "max": 19 },
+    { "suit": "stone", "min": 14, "max": 20 },
+    { "suit": "stone", "min": 15, "max": 21 },
+    
+    { "suit": "cinder", "min": 14, "max": 20 },
+    { "suit": "cinder", "min": 15, "max": 21 },
+    { "suit": "cinder", "min": 16, "max": 22 }
   ],
   "sphere_5_6": [
-    { "suit": "ether", "min": 8, "max": 13 },
-    { "suit": "ether", "min": 9, "max": 14 },
-    { "suit": "ether", "min": 10, "max": 15 },
+    { "suit": "ether", "min": 1, "max": 6 },
+    { "suit": "ether", "min": 2, "max": 7 },
+    { "suit": "ether", "min": 3, "max": 8 },
+    
+    { "suit": "steam", "min": 10, "max": 15 },
+    { "suit": "steam", "min": 12, "max": 17 },
+    { "suit": "steam", "min": 14, "max": 19 },
+    
+    { "suit": "acid", "min": 20, "max": 25 },
+    { "suit": "acid", "min": 23, "max": 28 },
+    { "suit": "acid", "min": 25, "max": 30 },
+    
+    { "suit": "stone", "min": 33, "max": 38 },
+    { "suit": "stone", "min": 35, "max": 40 },
+    { "suit": "stone", "min": 37, "max": 42 },
+    
+    { "suit": "cinder", "min": 43, "max": 48 },
+    { "suit": "cinder", "min": 45, "max": 50 },
+    { "suit": "cinder", "min": 47, "max": 52 }
+  ],
+  "sphere_7": [
+    { "suit": "ether", "min": -10, "max": -6 },
+    { "suit": "ether", "min": -8, "max": -4 },
+    { "suit": "ether", "min": -6, "max": -2 },
 
-    { "suit": "stone", "min": 10, "max": 16 },
-    { "suit": "stone", "min": 11, "max": 17 },
-    { "suit": "stone", "min": 12, "max": 18 },
-
-    { "suit": "steam", "min": 13, "max": 19 },
-    { "suit": "steam", "min": 14, "max": 20 },
-    { "suit": "steam", "min": 15, "max": 21 },
-
-    { "suit": "acid", "min": 16, "max": 22 },
-    { "suit": "acid", "min": 17, "max": 23 },
-    { "suit": "acid", "min": 18, "max": 24 },
-
-    { "suit": "cinder", "min": 19, "max": 25 },
-    { "suit": "cinder", "min": 20, "max": 26 },
-    { "suit": "cinder", "min": 21, "max": 27 }
+    { "suit": "steam", "min": -9, "max": -5 },
+    { "suit": "steam", "min": -7, "max": -3 },
+    { "suit": "steam", "min": -5, "max": -1 },
+    
+    { "suit": "acid", "min": -6, "max": -2 },
+    { "suit": "acid", "min": -4, "max": 0 },
+    { "suit": "acid", "min": -2, "max": 2 },
+    
+    { "suit": "stone", "min": -5, "max": -1 },
+    { "suit": "stone", "min": -3, "max": 1 },
+    { "suit": "stone", "min": -1, "max": 3 },
+    
+    { "suit": "cinder", "min": 0, "max": 4 },
+    { "suit": "cinder", "min": 2, "max": 6 },
+    { "suit": "cinder", "min": 4, "max": 8 }
+  ],
+  "sphere_8_9": [
+    { "suit": "ether", "min": 1, "max": 4 },
+    { "suit": "ether", "min": 3, "max": 6 },
+    { "suit": "ether", "min": 5, "max": 8 },
+    
+    { "suit": "steam", "min": 7, "max": 10 },
+    { "suit": "steam", "min": 9, "max": 12 },
+    { "suit": "steam", "min": 11, "max": 14 },
+    
+    { "suit": "acid", "min": 13, "max": 16 },
+    { "suit": "acid", "min": 15, "max": 18 },
+    { "suit": "acid", "min": 17, "max": 20 },
+    
+    { "suit": "stone", "min": 19, "max": 22 },
+    { "suit": "stone", "min": 21, "max": 24 },
+    { "suit": "stone", "min": 23, "max": 26 },
+    
+    { "suit": "cinder", "min": 25, "max": 28 },
+    { "suit": "cinder", "min": 27, "max": 30 },
+    { "suit": "cinder", "min": 29, "max": 32 }
   ]
 }

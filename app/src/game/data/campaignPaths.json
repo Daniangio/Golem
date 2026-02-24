@@ -1,0 +1,50 @@
+[
+  {
+    "id": "path_mercy_of_malkuth",
+    "name": "The Gentle Ascent",
+    "difficulty": "easy",
+    "lore": "A forgiving ascent where the vessel prioritizes stability before ambition.",
+    "steps": [
+      { "sphere": 1, "locationId": "S1_MALKUTH_AWAKENING" },
+      { "sphere": 2, "locationId": "S2_YESOD_DREAMS" },
+      { "sphere": 3, "locationId": "S3_HOD_GEOMETRIC_ORDER" },
+      { "sphere": 4, "locationId": "S4_NETZACH_THICKET_OF_FALSE_VICTORIES" },
+      { "sphere": 5, "locationId": "S5_TIPHARETH_HERALDS_STRAIN" },
+      { "sphere": 6, "locationId": "S6_GEVURAH_CRUCIBLE_OF_EXCESS" },
+      { "sphere": 7, "locationId": "S7_CHESED_INVERTED_TIDE" },
+      { "sphere": 8, "locationId": "S8_BINAH_DOUBLE_SEAL" }
+    ]
+  },
+  {
+    "id": "path_balanced_pilgrimage",
+    "name": "The Middle Pillar",
+    "difficulty": "normal",
+    "lore": "A balanced pilgrimage across reason and desire, with measured strain each sphere.",
+    "steps": [
+      { "sphere": 1, "locationId": "S1_MALKUTH_ASCENT" },
+      { "sphere": 2, "locationId": "S2_YESOD_REFLECTION" },
+      { "sphere": 3, "locationId": "S3_HOD_THE_FORBIDDEN_PRISM" },
+      { "sphere": 4, "locationId": "S4_NETZACH_STORM_OF_SHATTERED_SELVES" },
+      { "sphere": 5, "locationId": "S5_TIPHARETH_COMMUNION_CORE" },
+      { "sphere": 6, "locationId": "S6_GEVURAH_CRUCIBLE_OF_EXCESS" },
+      { "sphere": 7, "locationId": "S7_CHESED_MIRROR_OF_GRACE" },
+      { "sphere": 8, "locationId": "S8_BINAH_DOUBLE_SEAL" }
+    ]
+  },
+  {
+    "id": "path_severity_trial",
+    "name": "The Path of Severity",
+    "difficulty": "hard",
+    "lore": "A punishing route through hostile laws, designed to test coordination under pressure.",
+    "steps": [
+      { "sphere": 1, "locationId": "S1_MALKUTH_MIRE" },
+      { "sphere": 2, "locationId": "S2_YESOD_CROSSING" },
+      { "sphere": 3, "locationId": "S3_HOD_UNFORGIVING_LOGIC" },
+      { "sphere": 4, "locationId": "S4_NETZACH_FORGE_OF_UNENDING_DESIRE" },
+      { "sphere": 5, "locationId": "S5_TIPHARETH_CHAOTIC_MANDALA" },
+      { "sphere": 6, "locationId": "S6_GEVURAH_CRUCIBLE_OF_EXCESS" },
+      { "sphere": 7, "locationId": "S7_CHESED_WHEEL_OF_BENEVOLENCE" },
+      { "sphere": 8, "locationId": "S8_BINAH_DOUBLE_SEAL" }
+    ]
+  }
+]

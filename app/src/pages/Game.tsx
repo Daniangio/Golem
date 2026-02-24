@@ -6,6 +6,7 @@ import {
   confirmSigils,
   confirmParts,
   completeGame,
+  confirmSelection,
   endActions,
   getMySlot,
   invitePlayer,
@@ -15,6 +16,7 @@ import {
   playerCount,
   playCard,
   playAuxBatteryCard,
+  passCardToConductor,
   returnExchangeCard,
   revokeInvite,
   removeBot,
@@ -27,6 +29,7 @@ import {
   startGame,
   subscribeGame,
   swapWithReservoir,
+  useHarmonicAmplifier,
   useFuse,
   useLensOfTiphareth,
   useSteamSigilResonance,
@@ -42,6 +45,10 @@ import {
   type LocationCard,
   type SigilDef,
 } from "../game/locations";
+import {
+  AssignedFacultyPanel,
+  type AssignedSigilDetail,
+} from "../components/game/AssignedFacultyPanel";
 import { CommunionExchangePanel, PlayerBottomPanel } from "../components/game/PlayerBottomPanel";
 import { DiscardModal, OutcomeHistoryModal, TerrainDeckModal } from "../components/game/GameModals";
 import type { PlayerSlot, Players } from "../types";
@@ -521,11 +528,18 @@ export default function Game() {
 
   const terrainDeck = game.terrainDeck ?? [];
   const terrainIndex = game.terrainIndex ?? 0;
-  const terrain = terrainDeck[terrainIndex] ?? null;
-  const terrainRemaining = Math.max(0, terrainDeck.length - (terrainIndex + 1));
+  const useThreeTerrains = Boolean(location?.effects?.some((e) => e?.type === "reveal_three_terrains"));
+  const terrainSet = useThreeTerrains
+    ? terrainDeck.slice(terrainIndex, Math.min(terrainDeck.length, terrainIndex + 3))
+    : terrainDeck.slice(terrainIndex, Math.min(terrainDeck.length, terrainIndex + 1));
+  const terrain = terrainSet[0] ?? null;
+  const terrainRemaining = Math.max(0, terrainDeck.length - (terrainIndex + Math.max(1, terrainSet.length)));
   const pulsePhase = game.pulsePhase ?? "selection";
   const isPreSelection = pulsePhase === "pre_selection";
   const isDiscardSelectionPhase = pulsePhase === "discard_selection";
+  const manualSelectionReveal = Boolean(
+    location?.effects?.some((e) => e?.type === "selection_unbounded_cards" || e?.type === "conductor_plays_three_cards")
+  );
   const exchange = game.exchange ?? null;
   const exchangePending = Boolean(exchange);
   const pendingDiscard = game.pendingDiscard ?? null;
@@ -552,6 +566,21 @@ export default function Game() {
   const selectedSeatSigils = (game.seatSigils?.[selectedSeat] ?? [])
     .map((id) => getSigilById(id))
     .filter((sigil): sigil is SigilDef => Boolean(sigil));
+  const selectedSeatSigilDetails: AssignedSigilDetail[] = selectedSeatSigils.map((sigil) => {
+    const oncePerChapterEffect = sigil.effects.find((effect) => effect.type.startsWith("once_per_chapter_"));
+    const used = oncePerChapterEffect
+      ? Boolean(game.chapterAbilityUsed?.[selectedSeat]?.[oncePerChapterEffect.type])
+      : false;
+    return {
+      id: sigil.id,
+      name: sigil.name,
+      tier: sigil.tier,
+      text: sigil.text,
+      color: sigil.color,
+      oncePerChapterKey: oncePerChapterEffect?.type,
+      used,
+    };
+  });
 
   const seatList = SLOTS;
   const canActForSelected = Boolean(uid && canControlSeat(game, uid, selectedSeat));
@@ -559,6 +588,7 @@ export default function Game() {
     isDiscardSelectionPhase && pendingDiscardRequest && uid && canControlSeat(game, uid, selectedSeat)
   );
   const effectsForSeat = (seat: PlayerSlot): any[] => {
+    if (game.gameMode === "tutorial") return [];
     const out: any[] = [];
     const pid = game.partPicks?.[seat] ?? null;
     const def = getPartById(pid);
@@ -587,11 +617,16 @@ export default function Game() {
       const valueDelta = seatEffects
         .filter((e) => e?.type === "pulse_value_delta")
         .reduce((sum, e) => sum + (Number((e as any).amount) || 0), 0);
+      const valueMultiplier = seatEffects
+        .filter((e) => e?.type === "pulse_value_multiplier")
+        .reduce((product, e) => product * Math.max(1, Number((e as any).amount) || 1), 1);
 
       const primaryOptions =
         typeof entry.valueOverride === "number"
           ? [entry.valueOverride]
-          : pulseCardValueOptions(entry.card, seatEffects).map((v) => v + valueDelta);
+          : pulseCardValueOptions(entry.card, seatEffects, { terrainSuit: terrain?.suit ?? null }).map(
+              (v) => (v + valueDelta) * valueMultiplier
+            );
 
       const seatInfo: SeatValueChoiceInfo = {
         primaryOptions,
@@ -605,7 +640,9 @@ export default function Game() {
       rowMeta.push({ seat, target: "primary" });
 
       if (entry.extraCard) {
-        const extraOptions = pulseCardValueOptions(entry.extraCard, seatEffects).map((v) => v + valueDelta);
+        const extraOptions = pulseCardValueOptions(entry.extraCard, seatEffects, {
+          terrainSuit: terrain?.suit ?? null,
+        }).map((v) => (v + valueDelta) * valueMultiplier);
         seatInfo.extraOptions = extraOptions;
         if (typeof entry.extraValueChoice === "number" && extraOptions.includes(entry.extraValueChoice)) {
           seatInfo.extraSelected = entry.extraValueChoice;
@@ -640,6 +677,16 @@ export default function Game() {
 
     return info;
   })();
+  const playedValueMultiplierBySeat: Partial<Record<PlayerSlot, number>> = (() => {
+    const info: Partial<Record<PlayerSlot, number>> = {};
+    for (const seat of SLOTS) {
+      const seatEffects = effectsForSeat(seat);
+      info[seat] = seatEffects
+        .filter((e) => e?.type === "pulse_value_multiplier")
+        .reduce((product, e) => product * Math.max(1, Number((e as any).amount) || 1), 1);
+    }
+    return info;
+  })();
 
   const selectedSeatEffects = effectsForSeat(selectedSeat);
   const selectedHasEffect = (type: string) => selectedSeatEffects.some((e) => e && e.type === type);
@@ -652,6 +699,29 @@ export default function Game() {
   const ABILITY_OVERSHOOT_SHIELD = "once_per_chapter_prevent_first_overshoot_damage";
   const ABILITY_TIPHARETH_SWAP = "swap_and_skip_turn";
   const ABILITY_ANCHOR = "prevent_stall_limited_refill";
+  const ABILITY_HARMONIC_AMPLIFIER = "pay_friction_double_manifested_total";
+  const locationHasConductorPassRule = Boolean(location?.effects?.some((e) => e?.type === "pre_selection_pass_to_conductor"));
+  const conductorOnlySelection = Boolean(location?.effects?.some((e) => e?.type === "conductor_plays_three_cards"));
+  const conductorSeat = SLOTS.find((s) => game.partPicks?.[s] === "conductor_of_streams") ?? null;
+  const selectedHasPassedToConductor = Boolean(game.conductorPasses?.[selectedSeat]);
+  const selectedSeatShouldPassToConductor = Boolean(
+    locationHasConductorPassRule && conductorOnlySelection && conductorSeat && selectedSeat !== conductorSeat
+  );
+  const canPassToConductorFromSelected = Boolean(
+    selectedCardId &&
+      gameId &&
+      uid &&
+      canActForSelected &&
+      actingSeat &&
+      actingSeat === selectedSeat &&
+      locationHasConductorPassRule &&
+      conductorOnlySelection &&
+      conductorSeat &&
+      selectedSeat !== conductorSeat &&
+      !selectedHasPassedToConductor &&
+      !exchangePending &&
+      (pulsePhase === "selection" || pulsePhase === "pre_selection")
+  );
 
   const canPlayFromSelected = Boolean(
     gameId &&
@@ -660,6 +730,7 @@ export default function Game() {
       actingSeat &&
       actingSeat === selectedSeat &&
       !selectedSeatSkipped &&
+      (conductorOnlySelection ? selectedSeat === conductorSeat : true) &&
       (pulsePhase === "selection"
         ? !exchangePending && (!preSelectionSeats.length || preSelectionDone)
         : pulsePhase === "pre_selection"
@@ -888,7 +959,7 @@ export default function Game() {
           : "Wait for other seats."}
       </div>
     )
-  ) : (
+  ) : exchangePending ? (
     <CommunionExchangePanel
       exchange={exchange as any}
       pending={exchangePending}
@@ -912,7 +983,8 @@ export default function Game() {
         })
       }
     />
-  );
+  ) : null;
+  const showFacultyInBottomActionPanel = !isMobileLayout && !isDiscardSelectionPhase && !exchangePending;
 
   return (
     <div className="h-full w-full text-white">
@@ -1144,6 +1216,7 @@ export default function Game() {
                     }
                     onOpenTerrainDeck={() => setShowTerrainModal(true)}
                     terrain={terrain}
+                    terrainSet={terrainSet}
                     terrainHiddenState={
                       isPreSelection
                         ? "pre_selection"
@@ -1161,6 +1234,15 @@ export default function Game() {
                     busy={busy}
                     haveAllPlayed={haveAllPlayed}
                     exchangePending={exchangePending}
+                    canConfirmSelection={Boolean(
+                      pulsePhase === "selection" && isHost && manualSelectionReveal && haveAllPlayed && !exchangePending
+                    )}
+                    onConfirmSelection={() =>
+                      void guarded(async () => {
+                        if (!uid || !gameId) return;
+                        await confirmSelection(gameId, uid);
+                      })
+                    }
                     onEndActions={() =>
                       void guarded(async () => {
                         if (!uid || !gameId) return;
@@ -1169,6 +1251,7 @@ export default function Game() {
                     }
                     played={played}
                     valueChoicesBySeat={playedValueChoicesBySeat}
+                    valueMultiplierBySeat={playedValueMultiplierBySeat}
                     players={players}
                     playerNames={game.playerNames}
                     isOwnOrControlledSeat={(seat) => {
@@ -1212,6 +1295,17 @@ export default function Game() {
                       )
                     }
                     canFuseSeat={(seat) => Boolean(fuseAvailable && played[seat]?.card && played[seat]?.valueOverride !== 0)}
+                    canAmplifySeat={(seat) =>
+                      Boolean(
+                        pulsePhase === "actions" &&
+                          uid &&
+                          gameId &&
+                          canControlSeat(game, uid, seat) &&
+                          seatHasEffect(seat, ABILITY_HARMONIC_AMPLIFIER) &&
+                          played[seat]?.card &&
+                          !played[seat]?.totalMultiplier
+                      )
+                    }
                     onSwapR1={(seat) =>
                       void guarded(async () => {
                         if (!uid || !gameId) return;
@@ -1228,6 +1322,12 @@ export default function Game() {
                       void guarded(async () => {
                         if (!uid || !gameId || !fuseSeat) return;
                         await useFuse(gameId, uid, fuseSeat, seat);
+                      })
+                    }
+                    onAmplify={(seat) =>
+                      void guarded(async () => {
+                        if (!uid || !gameId) return;
+                        await useHarmonicAmplifier(gameId, uid, seat);
                       })
                     }
                   />
@@ -1257,10 +1357,15 @@ export default function Game() {
               }
               setSelectedCardId((prev) => (prev === cardId ? null : cardId));
             }}
-            canPlaySelected={Boolean(selectedCardId && canPlayFromSelected)}
+            canPlaySelected={Boolean(selectedCardId && (canPlayFromSelected || canPassToConductorFromSelected))}
+            playButtonLabel={canPassToConductorFromSelected && !canPlayFromSelected ? "Pass" : "Play"}
             onPlaySelected={() =>
               void guarded(async () => {
                 if (!uid || !gameId || !actingSeat || !selectedCardId) return;
+                if (canPassToConductorFromSelected && !canPlayFromSelected) {
+                  await passCardToConductor(gameId, uid, actingSeat, selectedCardId);
+                  return;
+                }
                 await playCard(gameId, uid, actingSeat, selectedCardId);
               })
             }
@@ -1313,9 +1418,25 @@ export default function Game() {
                 </button>
               </>
             }
+            desktopIdlePanel={
+              showFacultyInBottomActionPanel ? (
+                <AssignedFacultyPanel
+                  part={selectedPartDetail}
+                  token={selectedPartToken}
+                  sigils={selectedSeatSigilDetails}
+                  compact
+                />
+              ) : undefined
+            }
             hiddenNote={
               !canSeeSelectedHand && selectedUid ? (
                 <>Viewing another player — cards are hidden.</>
+              ) : selectedSeatShouldPassToConductor ? (
+                selectedHasPassedToConductor ? (
+                  <>Card passed to Conductor for this Pulse.</>
+                ) : (
+                  <>Choose a card and press Pass to send it to the Conductor.</>
+                )
               ) : selectedSeatSkipped ? (
                 <>This seat skips this Pulse.</>
               ) : null
@@ -1351,89 +1472,8 @@ export default function Game() {
               </button>
             </div>
 
-            {selectedPartDetail ? (
-              <div className="mt-3 rounded-2xl bg-white/5 p-3 ring-1 ring-white/10">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="text-sm font-extrabold text-white">{selectedPartDetail.name}</div>
-                  <div className="flex items-center gap-2">
-                    {selectedPartToken && (
-                      <span
-                        className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ring-1 ${
-                          selectedPartToken.tone === "good"
-                            ? "bg-emerald-400/20 text-emerald-200 ring-emerald-200/20"
-                            : "bg-white/10 text-white/70 ring-white/10"
-                        }`}
-                      >
-                        {selectedPartToken.label}
-                      </span>
-                    )}
-                    <span
-                      className={`rounded-full px-2 py-0.5 text-[11px] font-semibold ${
-                        selectedPartDetail.type === "compulsory"
-                          ? "bg-amber-400/20 text-amber-200"
-                          : "bg-slate-200/10 text-slate-200"
-                      }`}
-                    >
-                      {selectedPartDetail.type}
-                    </span>
-                  </div>
-                </div>
-                <div className="mt-2 text-[11px] leading-relaxed text-white/80">{selectedPartDetail.effect}</div>
-              </div>
-            ) : (
-              <div className="mt-3 rounded-2xl bg-white/5 p-3 text-[11px] text-white/70 ring-1 ring-white/10">
-                No faculty chosen yet.
-              </div>
-            )}
-
             <div className="mt-3">
-              <div className="text-[11px] font-semibold text-white/60">Sigils</div>
-              {selectedSeatSigils.length ? (
-                <div className="mt-2 grid gap-2">
-                  {selectedSeatSigils.map((sigil) => {
-                    const oncePerChapterEffect = sigil.effects.find((effect) =>
-                      effect.type.startsWith("once_per_chapter_")
-                    );
-                    const used = oncePerChapterEffect
-                      ? Boolean(game.chapterAbilityUsed?.[selectedSeat]?.[oncePerChapterEffect.type])
-                      : false;
-                    return (
-                      <div
-                        key={sigil.id}
-                        className="sigil-glow-border rounded-2xl p-[1px]"
-                        style={{ ["--sigil-glow-color" as any]: sigil.color }}
-                      >
-                        <div className="rounded-2xl bg-white/5 p-3 ring-1 ring-white/10">
-                          <div className="flex items-center justify-between gap-2">
-                            <div className="text-sm font-extrabold text-white">{sigil.name}</div>
-                            <div className="flex items-center gap-2">
-                              <span className="rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold text-white/70">
-                                Tier {sigil.tier}
-                              </span>
-                              {oncePerChapterEffect && (
-                                <span
-                                  className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ${
-                                    used
-                                      ? "bg-white/10 text-white/65 ring-white/10"
-                                      : "bg-emerald-400/20 text-emerald-200 ring-emerald-200/20"
-                                  }`}
-                                >
-                                  {used ? "Used" : "Ready"}
-                                </span>
-                              )}
-                            </div>
-                          </div>
-                          <div className="mt-2 text-[11px] leading-relaxed text-white/80">{sigil.text}</div>
-                        </div>
-                      </div>
-                    );
-                  })}
-                </div>
-              ) : (
-                <div className="mt-2 rounded-2xl bg-white/5 p-3 text-[11px] text-white/70 ring-1 ring-white/10">
-                  No sigils assigned.
-                </div>
-              )}
+              <AssignedFacultyPanel part={selectedPartDetail} token={selectedPartToken} sigils={selectedSeatSigilDetails} />
             </div>
           </div>
         </div>

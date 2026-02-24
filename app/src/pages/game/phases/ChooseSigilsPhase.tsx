@@ -49,16 +49,18 @@ export function ChooseSigilsPhase({
   const cards = sigils.map((sigil) => {
     const assignedSeat = assignments[sigil.id] ?? null;
     const selectedBySeat = assignedSeat === assigningSeat;
-    const canEdit = isHost && !busy && canActForSelected;
+    const canEdit = !busy && canActForSelected;
+    const lockedByOtherSeat = Boolean(assignedSeat && assignedSeat !== assigningSeat && !isHost);
+    const canToggle = canEdit && !lockedByOtherSeat;
     const cardStyle = { ["--sigil-glow-color" as any]: sigil.color } as React.CSSProperties;
     return (
       <button
         key={sigil.id}
         type="button"
-        disabled={!canEdit}
+        disabled={!canToggle}
         onClick={() => onAssignSigil(sigil.id, selectedBySeat ? null : assigningSeat)}
         className={`sigil-glow-border relative rounded-2xl p-[1px] text-left transition ${
-          canEdit ? "hover:-translate-y-0.5" : "opacity-70"
+          canToggle ? "hover:-translate-y-0.5" : "opacity-70"
         } ${isMobileLayout ? "w-full" : "w-full max-w-[260px]"}`}
         style={cardStyle}
       >
@@ -84,10 +86,12 @@ export function ChooseSigilsPhase({
               className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ring-1 ${
                 selectedBySeat
                   ? "bg-emerald-400/20 text-emerald-200 ring-emerald-200/20"
+                  : lockedByOtherSeat
+                    ? "bg-amber-400/15 text-amber-100 ring-amber-200/20"
                   : "bg-white/10 text-white/60 ring-white/10"
               }`}
             >
-              {selectedBySeat ? "Selected" : "Tap"}
+              {selectedBySeat ? "Selected" : lockedByOtherSeat ? "Locked" : "Tap"}
             </span>
           </div>
         </div>
@@ -140,6 +144,9 @@ export function ChooseSigilsPhase({
             <span className={infoPillClass}>
               Assigning as: {seatLabel(assigningSeat)}
             </span>
+            <span className={infoPillClass}>
+              Finalized only when P1 confirms
+            </span>
           </div>
 
           <div className="mt-2 min-h-0 flex-1 overflow-y-auto pr-1">{list}</div>
@@ -185,6 +192,9 @@ export function ChooseSigilsPhase({
         </span>
         <span className={infoPillClass}>
           P3: {(assignedBySeat.p3 ?? []).length}
+        </span>
+        <span className={infoPillClass}>
+          Finalized only when P1 confirms
         </span>
       </div>
 

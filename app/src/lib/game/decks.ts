@@ -19,13 +19,15 @@ export function makePulseDeck(): PulseCard[] {
 }
 
 export function defaultTerrainDeckTypeForSphere(sphere: number): TerrainDeckType {
+  if (sphere >= 8) return "sphere_8_9";
+  if (sphere >= 7) return "sphere_7";
   if (sphere >= 5) return "sphere_5_6";
   if (sphere >= 3) return "sphere_3_4";
   return "sphere_1_2";
 }
 
 type TerrainDeckEntry = Pick<TerrainCard, "suit" | "min" | "max">;
-type CanonicalTerrainDeckType = "sphere_1_2" | "sphere_3_4" | "sphere_5_6";
+type CanonicalTerrainDeckType = "sphere_1_2" | "sphere_3_4" | "sphere_5_6" | "sphere_7" | "sphere_8_9";
 
 const TERRAIN_DECKS = terrainDecksRaw as Record<CanonicalTerrainDeckType, TerrainDeckEntry[]>;
 

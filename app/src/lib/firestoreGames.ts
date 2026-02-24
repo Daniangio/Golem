@@ -14,6 +14,7 @@ import {
 } from "firebase/firestore";
 import { db } from "../firebase";
 import type {
+  CampaignVariant,
   GameDoc,
   GameStatus,
   GameMode,
@@ -27,7 +28,16 @@ import type {
   PulseSuit,
   SeatHands,
 } from "../types";
-import { getAllLocations, getAllSigils, getLocationById, getLocationsForStage, getPartById, getSigilById } from "../game/locations";
+import {
+  getAllCampaignPaths,
+  getAllLocations,
+  getAllSigils,
+  getCampaignPathLocationForSphere,
+  getLocationById,
+  getLocationsForStage,
+  getPartById,
+  getSigilById,
+} from "../game/locations";
 import {
   defaultTerrainDeckTypeForSphere,
   drawCardsWithReshuffle,
@@ -40,11 +50,13 @@ import { bestFitSelection, pulseCardValueOptions } from "./game/scoring";
 const GAMES = collection(db, "games");
 
 const SLOTS: PlayerSlot[] = ["p1", "p2", "p3"];
+const TUTORIAL_LOCATION_ID = "TUTORIAL_MALKUTH_AWAKENING";
 
 function effectsForSeat(
-  data: Pick<GameDoc, "locationId" | "partPicks"> & Partial<Pick<GameDoc, "seatSigils">>,
+  data: Pick<GameDoc, "locationId" | "partPicks"> & Partial<Pick<GameDoc, "seatSigils" | "gameMode">>,
   seat: PlayerSlot
 ): any[] {
+  if (data.gameMode === "tutorial") return [];
   const out: any[] = [];
   const partId = data.partPicks?.[seat] ?? null;
   const part = getPartById(partId);
@@ -64,15 +76,17 @@ function hasEffect(effects: any[], type: string): boolean {
 }
 
 function handCapacityForSeat(
-  data: Pick<GameDoc, "baseHandCapacity" | "partPicks" | "locationId"> & Partial<Pick<GameDoc, "seatSigils">>,
+  data: Pick<GameDoc, "baseHandCapacity" | "partPicks" | "locationId"> & Partial<Pick<GameDoc, "seatSigils" | "gameMode">>,
   seat: PlayerSlot
 ): number {
   const base = data.baseHandCapacity ?? 5;
   const effects = effectsForSeat(data, seat);
+  const fixed = effects.find((e) => e?.type === "hand_capacity_set");
+  const baseCap = fixed ? Math.max(0, Number(fixed.amount) || 0) : base;
   const delta = effects
     .filter((e) => e?.type === "hand_capacity_delta")
     .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
-  return Math.max(0, base + delta);
+  return Math.max(0, baseCap + delta);
 }
 
 function seatHasPart(data: Pick<GameDoc, "partPicks">, seat: PlayerSlot, partId: string): boolean {
@@ -89,32 +103,296 @@ function ensureChapterGlobalUsed(data: GameDoc): ChapterGlobalUsed {
 
 function seatPlayedSuit(entry: { card: PulseCard; extraCard?: PulseCard } | undefined, suit: Exclude<PulseSuit, "prism">): boolean {
   if (!entry?.card) return false;
-  const suits = [entry.card.suit, entry.extraCard?.suit].filter(Boolean) as PulseSuit[];
+  const suits = manifestedCards(entry as any).map((c) => c.suit);
   return suits.includes(suit);
 }
 
+function manifestedCards(entry: { card?: PulseCard; extraCard?: PulseCard; additionalCards?: PulseCard[] } | undefined): PulseCard[] {
+  if (!entry?.card) return [];
+  const extras = Array.isArray(entry.additionalCards)
+    ? entry.additionalCards
+    : entry.extraCard
+      ? [entry.extraCard]
+      : [];
+  return [entry.card, ...extras];
+}
+
+function manifestedCount(entry: { card?: PulseCard; extraCard?: PulseCard; additionalCards?: PulseCard[] } | undefined): number {
+  return manifestedCards(entry).length;
+}
+
+function conductorSeat(data: Pick<GameDoc, "partPicks">): PlayerSlot | null {
+  return SLOTS.find((seat) => seatHasPart(data, seat, "conductor_of_streams")) ?? null;
+}
+
+function applyConductorTransfersForPulse(
+  data: Pick<GameDoc, "locationId" | "partPicks" | "players"> & Partial<Pick<GameDoc, "gameMode">>,
+  handsRaw: SeatHands
+): {
+  hands: SeatHands;
+  skipThisPulse: Partial<Record<PlayerSlot, boolean>>;
+  conductorPasses: Partial<Record<PlayerSlot, boolean>>;
+} {
+  const location = getLocationById(data.locationId ?? null);
+  const locationEffects = location?.effects ?? [];
+  const hasPassRule = locationEffects.some((e) => e?.type === "pre_selection_pass_to_conductor");
+  const hasConductorRule = locationEffects.some((e) => e?.type === "conductor_plays_three_cards");
+  if (!hasPassRule || !hasConductorRule) return { hands: handsRaw, skipThisPulse: {}, conductorPasses: {} };
+
+  const conductor = conductorSeat(data);
+  if (!conductor || !data.players?.[conductor]) return { hands: handsRaw, skipThisPulse: {}, conductorPasses: {} };
+
+  const skipThisPulse: Partial<Record<PlayerSlot, boolean>> = {};
+  const conductorPasses: Partial<Record<PlayerSlot, boolean>> = {};
+  for (const seat of SLOTS) {
+    if (!data.players?.[seat]) continue;
+    skipThisPulse[seat] = seat !== conductor;
+    if (seat !== conductor) conductorPasses[seat] = false;
+  }
+
+  return { hands: handsRaw, skipThisPulse, conductorPasses };
+}
+
 function effectiveValueOptionsForCard(
-  data: Pick<GameDoc, "locationId" | "partPicks"> & Partial<Pick<GameDoc, "seatSigils">>,
+  data: Pick<GameDoc, "locationId" | "partPicks"> & Partial<Pick<GameDoc, "seatSigils" | "gameMode">>,
   seat: PlayerSlot,
   card: PulseCard,
-  valueOverride?: number
+  valueOverride?: number,
+  terrainSuit?: Exclude<PulseSuit, "prism"> | null
 ): number[] {
   if (typeof valueOverride === "number") return [valueOverride];
   const seatEffects = effectsForSeat(data, seat);
   const valueDelta = seatEffects
     .filter((e) => e?.type === "pulse_value_delta")
     .reduce((sum, e) => sum + (Number(e.amount) || 0), 0);
-  return pulseCardValueOptions(card, seatEffects).map((v) => v + valueDelta);
+  const valueMultiplier = seatEffects
+    .filter((e) => e?.type === "pulse_value_multiplier")
+    .reduce((product, e) => product * Math.max(1, Number(e.amount) || 1), 1);
+  return pulseCardValueOptions(card, seatEffects, { terrainSuit: terrainSuit ?? null }).map(
+    (v) => (v + valueDelta) * valueMultiplier
+  );
 }
 
-function preSelectionSeats(data: Pick<GameDoc, "locationId" | "partPicks">): PlayerSlot[] {
+function preSelectionSeats(data: Pick<GameDoc, "locationId" | "partPicks"> & Partial<Pick<GameDoc, "gameMode">>): PlayerSlot[] {
+  if (data.gameMode === "tutorial") return [];
   return SLOTS.filter((seat) => hasEffect(effectsForSeat(data, seat), "hide_terrain_until_played"));
 }
 
-function mandatoryExchangeSeat(data: Pick<GameDoc, "locationId" | "partPicks">): PlayerSlot | null {
+function mandatoryExchangeSeat(
+  data: Pick<GameDoc, "locationId" | "partPicks"> & Partial<Pick<GameDoc, "gameMode">>
+): PlayerSlot | null {
+  if (data.gameMode === "tutorial") return null;
   return (
     SLOTS.find((seat) => hasEffect(effectsForSeat(data, seat), "mandatory_card_exchange_after_terrain_reveal")) ?? null
   );
+}
+
+function normalizeCampaignVariant(data: Partial<Pick<GameDoc, "campaignVariant">>): CampaignVariant {
+  const variant = data.campaignVariant;
+  if (variant === "random_choice" || variant === "preset_path") return variant;
+  return "free_choice";
+}
+
+function normalizeCampaignRandomFaculties(data: Partial<Pick<GameDoc, "campaignRandomFaculties">>): boolean {
+  return Boolean(data.campaignRandomFaculties);
+}
+
+function normalizeCampaignPathId(data: Partial<Pick<GameDoc, "campaignPathId">>): string | null {
+  const id = data.campaignPathId?.trim();
+  return id ? id : null;
+}
+
+function pickRandom<T>(items: T[]): T | null {
+  if (!items.length) return null;
+  const idx = Math.floor(Math.random() * items.length);
+  return items[idx] ?? null;
+}
+
+function campaignLocationOptionsForChapter(
+  chapter: number,
+  campaignVariant: CampaignVariant,
+  campaignPathId: string | null
+): string[] {
+  const all = getLocationsForStage(chapter).map((l) => l.id);
+  if (campaignVariant === "random_choice") {
+    const picked = pickRandom(all);
+    return picked ? [picked] : [];
+  }
+  if (campaignVariant === "preset_path") {
+    const loc = getCampaignPathLocationForSphere(campaignPathId, chapter);
+    return loc ? [loc] : [];
+  }
+  return all;
+}
+
+function randomPartPicksForLocation(locationId: string): Record<PlayerSlot, string> | null {
+  const location = getLocationById(locationId);
+  if (!location) return null;
+  const compulsory = [...location.compulsory.map((p) => p.id)];
+  const optional = [...location.optional.map((p) => p.id)];
+  const pool = Array.from(new Set([...compulsory, ...optional]));
+  if (compulsory.length > SLOTS.length) return null;
+  if (pool.length < SLOTS.length) return null;
+
+  shuffleInPlace(compulsory);
+  const seats = [...SLOTS];
+  shuffleInPlace(seats);
+
+  const picks: Partial<Record<PlayerSlot, string>> = {};
+  const used = new Set<string>();
+  for (let i = 0; i < compulsory.length; i += 1) {
+    const seat = seats[i];
+    const partId = compulsory[i];
+    if (!seat || !partId) continue;
+    picks[seat] = partId;
+    used.add(partId);
+  }
+
+  const restSeats = seats.filter((s) => !picks[s]);
+  const candidates = pool.filter((id) => !used.has(id));
+  shuffleInPlace(candidates);
+  if (candidates.length < restSeats.length) return null;
+
+  for (let i = 0; i < restSeats.length; i += 1) {
+    const seat = restSeats[i];
+    const partId = candidates[i];
+    if (!seat || !partId) return null;
+    picks[seat] = partId;
+  }
+
+  if (!SLOTS.every((seat) => Boolean(picks[seat]))) return null;
+  return picks as Record<PlayerSlot, string>;
+}
+
+function buildPlayPhasePatchFromPicks(data: GameDoc, picks: Record<PlayerSlot, string>) {
+  const location = getLocationById(data.locationId ?? null);
+  if (!location) throw new Error("Location not set.");
+
+  const players = data.players ?? {};
+  const assignments: Record<string, string> = {};
+  for (const seat of SLOTS) {
+    const part = picks[seat];
+    const seatUid = players[seat];
+    if (!part || !seatUid) throw new Error("Invalid selection.");
+    assignments[part] = seatUid;
+  }
+
+  const deck = makePulseDeck();
+  shuffleInPlace(deck);
+
+  const baseHandCapacity = data.baseHandCapacity ?? 5;
+  const hands: SeatHands = {};
+  for (const seat of SLOTS) {
+    const cap = handCapacityForSeat(
+      {
+        baseHandCapacity,
+        partPicks: picks,
+        locationId: data.locationId ?? undefined,
+        seatSigils: data.seatSigils,
+        gameMode: data.gameMode,
+      },
+      seat
+    );
+    hands[seat] = deck.splice(0, cap);
+  }
+
+  const conductorSetup = applyConductorTransfersForPulse(
+    { locationId: data.locationId, partPicks: picks, players: data.players, gameMode: data.gameMode },
+    hands
+  );
+  const startingHands = conductorSetup.hands;
+  const startingSkip = conductorSetup.skipThisPulse;
+  const startingPasses = conductorSetup.conductorPasses;
+
+  const reservoirCountEffect = location.effects?.find((e) => e?.type === "reservoir_count") as any;
+  const reservoirCount = Math.min(2, Math.max(1, Number(reservoirCountEffect?.count) || 1));
+  const reservoir = deck.shift() ?? null;
+  const reservoir2 = reservoirCount >= 2 ? (deck.shift() ?? null) : null;
+
+  const terrainDeckType = location.terrainDeckType ?? defaultTerrainDeckTypeForSphere(location.sphere ?? 1);
+  const terrainCardsPerRun = Math.max(1, Number(location.terrainCardsPerRun ?? 5));
+  const terrainDeck = makeTerrainDeck(terrainDeckType, terrainCardsPerRun);
+  const preSeats = preSelectionSeats({ locationId: data.locationId, partPicks: picks, gameMode: data.gameMode });
+  const exchangeFrom = mandatoryExchangeSeat({ locationId: data.locationId, partPicks: picks, gameMode: data.gameMode });
+  const exchange = !preSeats.length && exchangeFrom ? { from: exchangeFrom, status: "awaiting_offer" as const } : null;
+
+  return {
+    phase: "play" as const,
+    partPicks: picks,
+    partAssignments: assignments,
+    hands: startingHands,
+    pulseDeck: deck,
+    pulseDiscard: [],
+    lastDiscarded: [],
+    reservoir,
+    reservoir2,
+    baseHandCapacity,
+    terrainDeck,
+    terrainDeckType,
+    terrainCardsPerRun,
+    terrainIndex: 0,
+    step: 1,
+    pulsePhase: preSeats.length ? ("pre_selection" as const) : ("selection" as const),
+    exchange,
+    skipThisPulse: startingSkip,
+    skipNextPulse: {},
+    conductorPasses: startingPasses,
+    played: {},
+    chapterAbilityUsed: {},
+    chapterGlobalUsed: {},
+    pendingDiscard: deleteField(),
+  };
+}
+
+function buildTutorialPlayPatch(data: GameDoc, locationId: string) {
+  const location = getLocationById(locationId);
+  if (!location) throw new Error("Tutorial location is not configured.");
+
+  const deck = makePulseDeck();
+  shuffleInPlace(deck);
+
+  const baseHandCapacity = data.baseHandCapacity ?? 5;
+  const hands: SeatHands = {};
+  for (const seat of SLOTS) {
+    if (!data.players?.[seat]) continue;
+    hands[seat] = deck.splice(0, baseHandCapacity);
+  }
+
+  const reservoirCountEffect = location.effects?.find((e) => e?.type === "reservoir_count") as any;
+  const reservoirCount = Math.min(2, Math.max(1, Number(reservoirCountEffect?.count) || 1));
+  const reservoir = deck.shift() ?? null;
+  const reservoir2 = reservoirCount >= 2 ? (deck.shift() ?? null) : null;
+
+  const terrainDeckType = location.terrainDeckType ?? defaultTerrainDeckTypeForSphere(location.sphere ?? 1);
+  const terrainCardsPerRun = Math.max(1, Number(location.terrainCardsPerRun ?? 5));
+  const terrainDeck = makeTerrainDeck(terrainDeckType, terrainCardsPerRun);
+
+  return {
+    phase: "play" as const,
+    partPicks: {},
+    partAssignments: {},
+    hands,
+    pulseDeck: deck,
+    pulseDiscard: [],
+    lastDiscarded: [],
+    reservoir,
+    reservoir2,
+    baseHandCapacity,
+    terrainDeck,
+    terrainDeckType,
+    terrainCardsPerRun,
+    terrainIndex: 0,
+    step: 1,
+    pulsePhase: "selection" as const,
+    exchange: null,
+    skipThisPulse: {},
+    skipNextPulse: {},
+    conductorPasses: deleteField(),
+    played: {},
+    chapterAbilityUsed: {},
+    chapterGlobalUsed: {},
+    pendingDiscard: deleteField(),
+  };
 }
 
 function normalizePendingSelectionsForRequests(
@@ -180,6 +458,12 @@ function isBotUid(uid: string): boolean {
   return uid.startsWith("bot:");
 }
 
+export type CreateGameOptions = {
+  campaignVariant?: CampaignVariant;
+  campaignRandomFaculties?: boolean;
+  campaignPathId?: string | null;
+};
+
 function nextBotName(players: Players, playerNames: Record<string, string>): string {
   const existing = new Set<string>();
   Object.values(players).forEach((u) => {
@@ -198,8 +482,12 @@ export async function createGameAndJoin(
   uid: string,
   name: string,
   visibility: "public" | "private" = "public",
-  gameMode: GameMode = "campaign"
+  gameMode: GameMode = "campaign",
+  options: CreateGameOptions = {}
 ) {
+  const campaignVariant = normalizeCampaignVariant(options);
+  const campaignRandomFaculties = normalizeCampaignRandomFaculties(options);
+  const campaignPathId = normalizeCampaignPathId(options);
   const initial: GameDoc = {
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
@@ -207,6 +495,9 @@ export async function createGameAndJoin(
     status: "lobby",
     visibility,
     gameMode,
+    campaignVariant,
+    campaignRandomFaculties,
+    campaignPathId,
     maxPlayers: 3,
     players: { p1: uid },
     playerNames: { [uid]: normalizeName(name) },
@@ -409,12 +700,25 @@ export async function startGame(gameId: string, hostUid: string) {
     if (!full) throw new Error("Need 3 players (add bots or wait for friends).");
 
     const gameMode = (data.gameMode ?? "campaign") as GameMode;
+    const campaignVariant = normalizeCampaignVariant(data);
+    const campaignRandomFaculties = normalizeCampaignRandomFaculties(data);
+    const campaignPathId = normalizeCampaignPathId(data);
+
+    if (gameMode === "campaign" && campaignVariant === "preset_path") {
+      const pathExists = getAllCampaignPaths().some((path) => path.id === campaignPathId);
+      if (!pathExists) throw new Error("Campaign path not found.");
+    }
+
     const locationOptions =
       gameMode === "single_location"
         ? getAllLocations().map((l) => l.id)
-        : getLocationsForStage(1).map((l) => l.id);
+        : gameMode === "campaign"
+          ? campaignLocationOptionsForChapter(1, campaignVariant, campaignPathId)
+          : getLocationsForStage(1).map((l) => l.id);
 
-    tx.update(gameRef, {
+    if (!locationOptions.length) throw new Error("No locations available for this run setup.");
+
+    const basePatch: Record<string, any> = {
       status: "active" as GameStatus,
       startedAt: serverTimestamp(),
       startedBy: hostUid,
@@ -429,6 +733,7 @@ export async function startGame(gameId: string, hostUid: string) {
       sigilDraftMaxPicks: 0,
       sigilDraftContext: deleteField(),
       pendingDiscard: deleteField(),
+      conductorPasses: deleteField(),
       partPicks: {},
       optionalPartId: null,
       partAssignments: {},
@@ -436,7 +741,50 @@ export async function startGame(gameId: string, hostUid: string) {
       chapter: 1,
       step: 1,
       golem: { hp: 5, heat: 0 },
-    });
+    };
+
+    const autoLocationCampaign = gameMode === "campaign" && campaignVariant !== "free_choice" && locationOptions.length === 1;
+    if (gameMode === "tutorial") {
+      const patch = buildTutorialPlayPatch({ ...data, locationId: TUTORIAL_LOCATION_ID, gameMode }, TUTORIAL_LOCATION_ID);
+      tx.update(gameRef, {
+        ...basePatch,
+        locationId: TUTORIAL_LOCATION_ID,
+        locationOptions: [TUTORIAL_LOCATION_ID],
+        locationVotes: {},
+        ...patch,
+        updatedAt: serverTimestamp(),
+      });
+      return;
+    }
+
+    if (autoLocationCampaign) {
+      const chosenLocation = locationOptions[0]!;
+      if (campaignRandomFaculties) {
+        const picks = randomPartPicksForLocation(chosenLocation);
+        if (!picks) throw new Error("Unable to generate random faculty assignment for selected location.");
+        const patch = buildPlayPhasePatchFromPicks({ ...data, locationId: chosenLocation, gameMode }, picks);
+        tx.update(gameRef, {
+          ...basePatch,
+          locationId: chosenLocation,
+          locationVotes: {},
+          ...patch,
+          updatedAt: serverTimestamp(),
+        });
+        return;
+      }
+
+      tx.update(gameRef, {
+        ...basePatch,
+        locationId: chosenLocation,
+        locationVotes: {},
+        phase: "choose_parts" as const,
+        partPicks: {},
+        updatedAt: serverTimestamp(),
+      });
+      return;
+    }
+
+    tx.update(gameRef, basePatch);
   });
 }
 
@@ -562,6 +910,7 @@ export async function confirmLocation(gameId: string, actorUid: string, preferre
         sigilDraftAssignments: {},
         sigilDraftMaxPicks: allSigilIds.length,
         pendingDiscard: deleteField(),
+        conductorPasses: deleteField(),
         partPicks: {},
         updatedAt: serverTimestamp(),
       });
@@ -578,6 +927,7 @@ export async function confirmLocation(gameId: string, actorUid: string, preferre
       sigilDraftAssignments: deleteField(),
       sigilDraftMaxPicks: deleteField(),
       pendingDiscard: deleteField(),
+      conductorPasses: deleteField(),
       partPicks: {},
       updatedAt: serverTimestamp(),
     });
@@ -645,7 +995,7 @@ export async function setSigilDraftAssignment(
 
     if (data.status !== "active") throw new Error("Game is not active.");
     if (data.phase !== "choose_sigils") throw new Error("Not in sigil draft.");
-    if (data.createdBy !== actorUid) throw new Error("Only the host can assign sigils.");
+    const isHost = data.createdBy === actorUid;
 
     const pool = data.sigilDraftPool ?? [];
     if (!pool.includes(sigilId)) throw new Error("Sigil not available in this draft.");
@@ -654,6 +1004,29 @@ export async function setSigilDraftAssignment(
     const assignments = { ...(data.sigilDraftAssignments ?? {}) } as Record<string, PlayerSlot>;
     const maxPicks = Math.max(0, Number(data.sigilDraftMaxPicks ?? pool.length) || 0);
     const hadAssignment = Boolean(assignments[sigilId]);
+    const currentSeat = assignments[sigilId] ?? null;
+
+    const canControlSeat = (slot: PlayerSlot | null): boolean => {
+      if (!slot) return false;
+      const seatUid = data.players?.[slot];
+      if (!seatUid) return false;
+      if (seatUid === actorUid) return true;
+      return isHost && isBotUid(seatUid);
+    };
+
+    if (!isHost) {
+      if (seat) {
+        if (!canControlSeat(seat)) throw new Error("You can assign sigils only for your seat.");
+        if (currentSeat && currentSeat !== seat) {
+          throw new Error("This sigil is already selected by another seat.");
+        }
+      } else {
+        if (!currentSeat || !canControlSeat(currentSeat)) {
+          throw new Error("You can deselect only sigils selected by your seat.");
+        }
+      }
+    }
+
     if (seat) {
       if (!hadAssignment && Object.keys(assignments).length >= maxPicks) {
         throw new Error("Maximum picks reached.");
@@ -709,6 +1082,7 @@ export async function confirmSigils(gameId: string, actorUid: string) {
       tx.update(gameRef, {
         seatSigils,
         phase: "choose_parts" as const,
+        conductorPasses: deleteField(),
         sigilDraftContext: deleteField(),
         sigilDraftTier: deleteField(),
         sigilDraftPool: deleteField(),
@@ -720,6 +1094,54 @@ export async function confirmSigils(gameId: string, actorUid: string) {
     }
 
     if (isRewardDraft) {
+      const gameMode = (data.gameMode ?? "campaign") as GameMode;
+      const campaignVariant = normalizeCampaignVariant(data);
+      const campaignRandomFaculties = normalizeCampaignRandomFaculties(data);
+      const nextLocations = data.locationOptions ?? [];
+      const autoLocationCampaign = gameMode === "campaign" && campaignVariant !== "free_choice" && nextLocations.length === 1;
+      const nextAutoLocationId = autoLocationCampaign ? nextLocations[0] ?? null : null;
+
+      if (nextAutoLocationId) {
+        if (campaignRandomFaculties) {
+          const randomPicks = randomPartPicksForLocation(nextAutoLocationId);
+          if (!randomPicks) throw new Error("Unable to generate random faculty assignment for next chapter.");
+          const playPatch = buildPlayPhasePatchFromPicks(
+            { ...data, locationId: nextAutoLocationId, seatSigils, gameMode },
+            randomPicks
+          );
+          tx.update(gameRef, {
+            seatSigils,
+            locationId: nextAutoLocationId,
+            locationVotes: {},
+            ...playPatch,
+            sigilDraftContext: deleteField(),
+            sigilDraftTier: deleteField(),
+            sigilDraftPool: deleteField(),
+            sigilDraftAssignments: deleteField(),
+            sigilDraftMaxPicks: deleteField(),
+            updatedAt: serverTimestamp(),
+          });
+          return;
+        }
+
+        tx.update(gameRef, {
+          seatSigils,
+          phase: "choose_parts" as const,
+          locationId: nextAutoLocationId,
+          locationVotes: {},
+          partPicks: {},
+          partAssignments: {},
+          conductorPasses: deleteField(),
+          sigilDraftContext: deleteField(),
+          sigilDraftTier: deleteField(),
+          sigilDraftPool: deleteField(),
+          sigilDraftAssignments: deleteField(),
+          sigilDraftMaxPicks: deleteField(),
+          updatedAt: serverTimestamp(),
+        });
+        return;
+      }
+
       tx.update(gameRef, {
         seatSigils,
         phase: "choose_location" as const,
@@ -727,6 +1149,7 @@ export async function confirmSigils(gameId: string, actorUid: string) {
         locationVotes: {},
         partPicks: {},
         partAssignments: {},
+        conductorPasses: deleteField(),
         sigilDraftContext: deleteField(),
         sigilDraftTier: deleteField(),
         sigilDraftPool: deleteField(),
@@ -774,63 +1197,10 @@ export async function confirmParts(gameId: string, hostUid: string) {
     const compulsory = new Set(location.compulsory.map((p) => p.id));
     for (const c of compulsory) if (!uniq.has(c)) throw new Error("All compulsory parts must be assigned.");
 
-    const players = data.players ?? {};
-    const assignments: Record<string, string> = {};
-    for (const seat of SLOTS) {
-      const part = picks[seat];
-      const seatUid = players[seat];
-      if (!part || !seatUid) throw new Error("Invalid selection.");
-      assignments[part] = seatUid;
-    }
-
-    const deck = makePulseDeck();
-    shuffleInPlace(deck);
-
-    const baseHandCapacity = data.baseHandCapacity ?? 5;
-    const hands: SeatHands = {};
-    for (const seat of SLOTS) {
-      const cap = handCapacityForSeat(
-        { baseHandCapacity, partPicks: picks, locationId: data.locationId ?? undefined, seatSigils: data.seatSigils },
-        seat
-      );
-      hands[seat] = deck.splice(0, cap);
-    }
-
-    const reservoirCountEffect = location.effects?.find((e) => e?.type === "reservoir_count") as any;
-    const reservoirCount = Math.min(2, Math.max(1, Number(reservoirCountEffect?.count) || 1));
-    const reservoir = deck.shift() ?? null;
-    const reservoir2 = reservoirCount >= 2 ? (deck.shift() ?? null) : null;
-
-    const terrainDeckType = location.terrainDeckType ?? defaultTerrainDeckTypeForSphere(location.sphere ?? 1);
-    const terrainCardsPerRun = Math.max(1, Number(data.terrainCardsPerRun ?? 5));
-    const terrainDeck = makeTerrainDeck(terrainDeckType, terrainCardsPerRun);
-    const preSeats = preSelectionSeats({ locationId: data.locationId, partPicks: picks });
-    const exchangeFrom = mandatoryExchangeSeat({ locationId: data.locationId, partPicks: picks });
-    const exchange = !preSeats.length && exchangeFrom ? { from: exchangeFrom, status: "awaiting_offer" as const } : null;
+    const patch = buildPlayPhasePatchFromPicks({ ...data, gameMode: data.gameMode }, picks as Record<PlayerSlot, string>);
 
     tx.update(gameRef, {
-      phase: "play",
-      partAssignments: assignments,
-      hands,
-      pulseDeck: deck,
-      pulseDiscard: [],
-      lastDiscarded: [],
-      reservoir,
-      reservoir2,
-      baseHandCapacity,
-      terrainDeck,
-      terrainDeckType,
-      terrainCardsPerRun,
-      terrainIndex: 0,
-      step: 1,
-      pulsePhase: preSeats.length ? "pre_selection" : "selection",
-      exchange,
-      skipThisPulse: {},
-      skipNextPulse: {},
-      played: {},
-      chapterAbilityUsed: {},
-      chapterGlobalUsed: {},
-      pendingDiscard: deleteField(),
+      ...patch,
       outcomeLog: [],
       updatedAt: serverTimestamp(),
     });
@@ -858,8 +1228,14 @@ export async function playCard(gameId: string, actorUid: string, seat: PlayerSlo
     const isBot = isBotUid(seatUid);
     const isHost = data.createdBy === actorUid;
     if (seatUid !== actorUid && !(isHost && isBot)) throw new Error("You can't play for that seat.");
-
-    if (data.played?.[seat]) throw new Error("That seat already played a card.");
+    const location = getLocationById(data.locationId ?? null);
+    const locationEffects = location?.effects ?? [];
+    const hasUnboundedSelection = locationEffects.some((e) => e?.type === "selection_unbounded_cards");
+    const hasConductorRule = locationEffects.some((e) => e?.type === "conductor_plays_three_cards");
+    const conductor = hasConductorRule ? conductorSeat(data) : null;
+    if (hasConductorRule && conductor && seat !== conductor) {
+      throw new Error("Only the Conductor can manifest in this location.");
+    }
 
     const hands = { ...(data.hands ?? {}) } as SeatHands;
     const hand = [...(hands[seat] ?? [])];
@@ -868,27 +1244,86 @@ export async function playCard(gameId: string, actorUid: string, seat: PlayerSlo
     const [card] = hand.splice(idx, 1);
     hands[seat] = hand;
 
-    const played = { ...(data.played ?? {}) } as any;
-    played[seat] = {
-      card,
-      bySeat: seat,
-      at: serverTimestamp(),
-      ...(hasEffect(effectsForSeat(data, seat), "reveal_card_during_selection") ? { revealedDuringSelection: true } : {}),
-    };
-
     const activeSeats = SLOTS.filter((s) => Boolean(data.players?.[s]) && !skipThisPulse[s]);
-    const full = activeSeats.every((s) => Boolean(played[s]));
-    const preSeats = preSelectionSeats({ locationId: data.locationId, partPicks: data.partPicks });
+    const played = { ...(data.played ?? {}) } as any;
+    const heraldSeat =
+      pulsePhase === "selection"
+        ? activeSeats.find((s) => hasEffect(effectsForSeat(data, s), "must_play_first_faceup")) ?? null
+        : null;
+    if (heraldSeat && seat !== heraldSeat && !played[heraldSeat]?.card) {
+      throw new Error("The Herald must manifest first.");
+    }
+
+    const seatEffects = effectsForSeat(data, seat);
+    const revealDuringSelection =
+      hasEffect(seatEffects, "reveal_card_during_selection") || (heraldSeat !== null && seat === heraldSeat);
+
+    const existingEntry = played[seat];
+    if (!existingEntry?.card) {
+      played[seat] = {
+        card,
+        additionalCards: [],
+        bySeat: seat,
+        at: serverTimestamp(),
+        ...(revealDuringSelection ? { revealedDuringSelection: true } : {}),
+      };
+    } else {
+      const allowMulti = hasUnboundedSelection || (hasConductorRule && conductor === seat);
+      if (!allowMulti) throw new Error("That seat already played a card.");
+
+      const current = manifestedCards(existingEntry as any);
+      const maxCards = hasConductorRule && conductor === seat ? 3 : Number.POSITIVE_INFINITY;
+      if (current.length >= maxCards) throw new Error("Maximum manifested cards reached for this seat.");
+
+      const additional = Array.isArray(existingEntry.additionalCards)
+        ? [...existingEntry.additionalCards]
+        : existingEntry.extraCard
+          ? [existingEntry.extraCard]
+          : [];
+      additional.push(card);
+      played[seat] = {
+        ...existingEntry,
+        additionalCards: additional,
+        extraCard: additional[0],
+      };
+      if (additional.length === 1) {
+        const { extraValueChoice: _unused, ...rest } = played[seat];
+        played[seat] = rest;
+      }
+    }
+
+    let full = activeSeats.every((s) => Boolean(played[s]?.card));
+    if (hasConductorRule && conductor && activeSeats.includes(conductor)) {
+      const conductorEntry = played[conductor];
+      const count = manifestedCount(conductorEntry);
+      const remaining = (hands[conductor] ?? []).length;
+      const needed = Math.min(3, count + remaining);
+      full = full && count >= needed;
+    }
+    const preSeats = preSelectionSeats({ locationId: data.locationId, partPicks: data.partPicks, gameMode: data.gameMode });
     const preDone = preSeats.every((s) => skipThisPulse[s] || Boolean(played[s]));
 
     if (pulsePhase === "pre_selection" && preSeats.length && !preSeats.includes(seat)) {
       throw new Error("That seat can't play before the terrain is revealed.");
     }
 
-    const nextPulsePhase = full ? "actions" : preSeats.length && !preDone ? "pre_selection" : "selection";
+    const manualReveal = pulsePhase === "selection" && (hasUnboundedSelection || hasConductorRule);
+    const nextPulsePhase = manualReveal
+      ? preSeats.length && !preDone
+        ? "pre_selection"
+        : "selection"
+      : full
+        ? "actions"
+        : preSeats.length && !preDone
+          ? "pre_selection"
+          : "selection";
     let exchange = (data.exchange ?? null) as any;
     if (pulsePhase === "pre_selection" && nextPulsePhase !== "pre_selection" && !exchange) {
-      const exchangeFrom = mandatoryExchangeSeat({ locationId: data.locationId, partPicks: data.partPicks });
+      const exchangeFrom = mandatoryExchangeSeat({
+        locationId: data.locationId,
+        partPicks: data.partPicks,
+        gameMode: data.gameMode,
+      });
       if (exchangeFrom) exchange = { from: exchangeFrom, status: "awaiting_offer" as const };
     }
 
@@ -897,6 +1332,107 @@ export async function playCard(gameId: string, actorUid: string, seat: PlayerSlo
       played,
       pulsePhase: nextPulsePhase,
       exchange,
+      updatedAt: serverTimestamp(),
+    });
+  });
+}
+
+export async function confirmSelection(gameId: string, actorUid: string) {
+  const gameRef = doc(db, "games", gameId);
+
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(gameRef);
+    if (!snap.exists()) throw new Error("Game not found.");
+    const data = snap.data() as GameDoc;
+
+    if (data.status !== "active") throw new Error("Game is not active.");
+    if (data.phase !== "play") throw new Error("Not in play phase.");
+    if ((data.pulsePhase ?? "selection") !== "selection") throw new Error("Selection is already resolved.");
+    if (data.createdBy !== actorUid) throw new Error("Only the host can reveal selection for this location.");
+    if (data.exchange) throw new Error("Resolve exchange before reveal.");
+
+    const skipThisPulse = data.skipThisPulse ?? {};
+    const activeSeats = SLOTS.filter((seat) => Boolean(data.players?.[seat]) && !skipThisPulse[seat]);
+    const played = data.played ?? {};
+    if (!activeSeats.length) throw new Error("No active seats this pulse.");
+    for (const seat of activeSeats) {
+      if (!played[seat]?.card) throw new Error("All active seats must manifest at least one card.");
+    }
+
+    const location = getLocationById(data.locationId ?? null);
+    const locationEffects = location?.effects ?? [];
+    const hasConductorRule = locationEffects.some((e) => e?.type === "conductor_plays_three_cards");
+    if (hasConductorRule) {
+      const conductor = conductorSeat(data);
+      if (conductor && activeSeats.includes(conductor)) {
+        const entry = played[conductor];
+        const count = manifestedCount(entry as any);
+        const remaining = (data.hands?.[conductor] ?? []).length;
+        const needed = Math.min(3, count + remaining);
+        if (count < needed) throw new Error("Conductor must manifest up to 3 cards before reveal.");
+      }
+    }
+
+    tx.update(gameRef, {
+      pulsePhase: "actions" as const,
+      updatedAt: serverTimestamp(),
+    });
+  });
+}
+
+export async function passCardToConductor(gameId: string, actorUid: string, seat: PlayerSlot, cardId: string) {
+  const gameRef = doc(db, "games", gameId);
+
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(gameRef);
+    if (!snap.exists()) throw new Error("Game not found.");
+    const data = snap.data() as GameDoc;
+
+    if (data.status !== "active") throw new Error("Game is not active.");
+    if (data.phase !== "play") throw new Error("Not in play phase.");
+    const pulsePhase = data.pulsePhase ?? "selection";
+    if (pulsePhase !== "selection" && pulsePhase !== "pre_selection") {
+      throw new Error("Cards can be passed to the Conductor only during selection.");
+    }
+    if (data.exchange) throw new Error("Resolve exchange before passing cards.");
+
+    const location = getLocationById(data.locationId ?? null);
+    const locationEffects = location?.effects ?? [];
+    const hasPassRule = locationEffects.some((e) => e?.type === "pre_selection_pass_to_conductor");
+    const hasConductorRule = locationEffects.some((e) => e?.type === "conductor_plays_three_cards");
+    if (!hasPassRule || !hasConductorRule) throw new Error("This location does not use Conductor passing.");
+
+    const conductor = conductorSeat(data);
+    if (!conductor) throw new Error("No Conductor assigned.");
+    if (seat === conductor) throw new Error("Conductor cannot pass to self.");
+    if (data.played?.[conductor]?.card) throw new Error("Cannot pass after the Conductor started manifesting.");
+
+    const seatUid = data.players?.[seat];
+    if (!seatUid) throw new Error("Seat is empty.");
+    const isBot = isBotUid(seatUid);
+    const isHost = data.createdBy === actorUid;
+    if (seatUid !== actorUid && !(isHost && isBot)) throw new Error("You can't act for that seat.");
+
+    const alreadyPassed = Boolean(data.conductorPasses?.[seat]);
+    if (alreadyPassed) throw new Error("This seat already passed a card this pulse.");
+
+    const hands = { ...(data.hands ?? {}) } as SeatHands;
+    const donorHand = [...(hands[seat] ?? [])];
+    const idx = donorHand.findIndex((c) => c.id === cardId);
+    if (idx < 0) throw new Error("Card not found in hand.");
+    const [card] = donorHand.splice(idx, 1);
+    hands[seat] = donorHand;
+
+    const conductorHand = [...(hands[conductor] ?? [])];
+    conductorHand.push(card);
+    hands[conductor] = conductorHand;
+
+    const conductorPasses = { ...(data.conductorPasses ?? {}) };
+    conductorPasses[seat] = true;
+
+    tx.update(gameRef, {
+      hands,
+      conductorPasses,
       updatedAt: serverTimestamp(),
     });
   });
@@ -1025,7 +1561,9 @@ export async function playAuxBatteryCard(gameId: string, actorUid: string, seat:
     const played = { ...(data.played ?? {}) } as any;
     const entry = played[seat];
     if (!entry?.card) throw new Error("Seat has not played a card.");
-    if (entry.extraCard) throw new Error("Extra card already contributed.");
+    if (entry.extraCard || (Array.isArray(entry.additionalCards) && entry.additionalCards.length > 0)) {
+      throw new Error("Extra card already contributed.");
+    }
 
     const hands = { ...(data.hands ?? {}) } as SeatHands;
     const hand = [...(hands[seat] ?? [])];
@@ -1035,7 +1573,7 @@ export async function playAuxBatteryCard(gameId: string, actorUid: string, seat:
     hands[seat] = hand;
 
     const { extraValueChoice: _oldExtraChoice, ...entryRest } = entry;
-    played[seat] = { ...entryRest, extraCard: card };
+    played[seat] = { ...entryRest, extraCard: card, additionalCards: [card] };
     usedForSeat[abilityKey] = true;
     chapterAbilityUsed[seat] = usedForSeat;
 
@@ -1078,12 +1616,15 @@ export async function setPlayedCardValueChoice(
 
     const card = target === "primary" ? entry.card : entry.extraCard;
     if (!card) throw new Error("No card available for that choice.");
+    const terrainDeck = data.terrainDeck ?? [];
+    const terrain = terrainDeck[data.terrainIndex ?? 0] ?? null;
 
     const options = effectiveValueOptionsForCard(
-      { locationId: data.locationId, partPicks: data.partPicks, seatSigils: data.seatSigils },
+      { locationId: data.locationId, partPicks: data.partPicks, seatSigils: data.seatSigils, gameMode: data.gameMode },
       seat,
       card,
-      target === "primary" ? entry.valueOverride : undefined
+      target === "primary" ? entry.valueOverride : undefined,
+      terrain?.suit ?? null
     );
     if (options.length <= 1) throw new Error("This card has a fixed value.");
 
@@ -1191,6 +1732,59 @@ export async function useLensOfTiphareth(gameId: string, actorUid: string, seat:
       hands,
       played,
       skipNextPulse,
+      updatedAt: serverTimestamp(),
+    });
+  });
+}
+
+export async function useHarmonicAmplifier(gameId: string, actorUid: string, seat: PlayerSlot) {
+  const gameRef = doc(db, "games", gameId);
+
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(gameRef);
+    if (!snap.exists()) throw new Error("Game not found.");
+    const data = snap.data() as GameDoc;
+
+    if (data.status !== "active") throw new Error("Game is not active.");
+    if (data.phase !== "play") throw new Error("Not in play phase.");
+    if ((data.pulsePhase ?? "selection") !== "actions") throw new Error("Only after reveal.");
+
+    const seatUid = data.players?.[seat];
+    if (!seatUid) throw new Error("Seat is empty.");
+    const isBot = isBotUid(seatUid);
+    const isHost = data.createdBy === actorUid;
+    if (seatUid !== actorUid && !(isHost && isBot)) throw new Error("You can't act for that seat.");
+
+    const abilityKey = "pay_friction_double_manifested_total";
+    if (!hasEffect(effectsForSeat(data, seat), abilityKey)) {
+      throw new Error("That seat cannot amplify the manifested total.");
+    }
+
+    const played = { ...(data.played ?? {}) } as any;
+    const entry = played[seat];
+    if (!entry?.card) throw new Error("Seat has not played a card.");
+    if (Number(entry.totalMultiplier ?? 1) > 1) throw new Error("This action was already used this Pulse.");
+
+    let heat = data.golem?.heat ?? 0;
+    let hp = data.golem?.hp ?? 5;
+    heat += 1;
+    if (heat >= 3) {
+      hp = Math.max(0, hp - 1);
+      heat = 0;
+    }
+
+    played[seat] = { ...entry, totalMultiplier: 2 };
+
+    tx.update(gameRef, {
+      played,
+      golem: { hp, heat },
+      ...(hp <= 0
+        ? {
+            status: "completed" as GameStatus,
+            endedReason: "loss" as const,
+            completedAt: serverTimestamp(),
+          }
+        : {}),
       updatedAt: serverTimestamp(),
     });
   });
@@ -1492,7 +2086,13 @@ export async function endActions(gameId: string, actorUid: string) {
 
     const terrainDeck = data.terrainDeck ?? [];
     const terrainIndex = data.terrainIndex ?? 0;
-    const terrain = terrainDeck[terrainIndex];
+    const location = getLocationById(data.locationId ?? null);
+    const locationEffects = location?.effects ?? [];
+    const useThreeTerrains = locationEffects.some((e) => e?.type === "reveal_three_terrains");
+    const terrainSet = useThreeTerrains
+      ? terrainDeck.slice(terrainIndex, Math.min(terrainDeck.length, terrainIndex + 3))
+      : terrainDeck.slice(terrainIndex, Math.min(terrainDeck.length, terrainIndex + 1));
+    const terrain = terrainSet[0] ?? null;
     if (!terrain) throw new Error("No terrain card.");
 
     const skipThisPulse = { ...(data.skipThisPulse ?? {}) };
@@ -1503,9 +2103,6 @@ export async function endActions(gameId: string, actorUid: string) {
     for (const seat of activeSeats) {
       if (!played[seat]?.card) throw new Error("Not all seats played.");
     }
-
-    const location = getLocationById(data.locationId ?? null);
-    const locationEffects = location?.effects ?? [];
     const chapterAbilityUsed = ensureChapterAbilityUsed(data);
     const chapterGlobalUsed = ensureChapterGlobalUsed(data);
 
@@ -1513,34 +2110,38 @@ export async function endActions(gameId: string, actorUid: string) {
     const optionSeat: PlayerSlot[] = [];
     for (const seat of activeSeats) {
       const entry = played[seat]!;
-      const primaryOptions = effectiveValueOptionsForCard(
-        { locationId: data.locationId, partPicks: data.partPicks, seatSigils: data.seatSigils },
-        seat,
-        entry.card,
-        entry.valueOverride
-      );
-      const primaryChoice =
-        typeof entry.valueChoice === "number" && primaryOptions.includes(entry.valueChoice)
-          ? entry.valueChoice
-          : null;
-      options.push(primaryChoice === null ? primaryOptions : [primaryChoice]);
-      optionSeat.push(seat);
-      if (entry.extraCard) {
-        const extraOptions = effectiveValueOptionsForCard(
-          { locationId: data.locationId, partPicks: data.partPicks, seatSigils: data.seatSigils },
+      const manifested = manifestedCards(entry);
+      const firstAdditional = Array.isArray(entry.additionalCards)
+        ? entry.additionalCards[0]
+        : entry.extraCard ?? null;
+      manifested.forEach((manifestedCard, cardIndex) => {
+        const isPrimary = cardIndex === 0;
+        const isExtra = cardIndex === 1 && firstAdditional && manifestedCard.id === firstAdditional.id;
+        const valueOverride = isPrimary ? entry.valueOverride : undefined;
+        const valueOptions = effectiveValueOptionsForCard(
+          { locationId: data.locationId, partPicks: data.partPicks, seatSigils: data.seatSigils, gameMode: data.gameMode },
           seat,
-          entry.extraCard
+          manifestedCard,
+          valueOverride,
+          terrain.suit
         );
-        const extraChoice =
-          typeof entry.extraValueChoice === "number" && extraOptions.includes(entry.extraValueChoice)
-            ? entry.extraValueChoice
-            : null;
-        options.push(extraChoice === null ? extraOptions : [extraChoice]);
+        const explicitChoice =
+          isPrimary && typeof entry.valueChoice === "number" && valueOptions.includes(entry.valueChoice)
+            ? entry.valueChoice
+            : isExtra && typeof entry.extraValueChoice === "number" && valueOptions.includes(entry.extraValueChoice)
+              ? entry.extraValueChoice
+              : null;
+        options.push(explicitChoice === null ? valueOptions : [explicitChoice]);
         optionSeat.push(seat);
-      }
+      });
     }
     const selection = bestFitSelection(options, terrain.min, terrain.max);
-    const total = selection.total;
+    const manifestedTotalMultiplier = activeSeats.reduce((multiplier, seat) => {
+      const raw = Number((played[seat] as any)?.totalMultiplier);
+      if (!Number.isFinite(raw) || raw <= 1) return multiplier;
+      return multiplier * raw;
+    }, 1);
+    const total = selection.total * manifestedTotalMultiplier;
     const seatManifestedValues: Partial<Record<PlayerSlot, number[]>> = {};
     selection.chosenValues.forEach((value, index) => {
       const seat = optionSeat[index];
@@ -1551,11 +2152,37 @@ export async function endActions(gameId: string, actorUid: string) {
     });
 
     let result: "success" | "undershoot" | "overshoot" = "success";
-    if (total < terrain.min) result = "undershoot";
-    else if (total > terrain.max) result = "overshoot";
+    const successIfMatchesNone = locationEffects.some((e) => e?.type === "success_if_matches_none");
+    if (successIfMatchesNone) {
+      const matchedAny = terrainSet.some((windowCard) => total >= windowCard.min && total <= windowCard.max);
+      result = matchedAny ? "overshoot" : "success";
+    } else {
+      if (total < terrain.min) result = "undershoot";
+      else if (total > terrain.max) result = "overshoot";
+    }
 
     if (result === "undershoot" && locationEffects.some((e) => e?.type === "undershoot_counts_as_overshoot")) {
       result = "overshoot";
+    }
+
+    const consecutiveEffect = locationEffects.find((e) => e?.type === "requires_consecutive_successes") as any;
+    const consecutiveNeeded = Math.max(2, Number(consecutiveEffect?.count) || 2);
+    const consecutiveKey = "requires_consecutive_successes";
+    let consecutiveGateAllowsAdvance = true;
+    if (consecutiveEffect) {
+      const current = Math.max(0, Number(chapterGlobalUsed[consecutiveKey]) || 0);
+      if (result === "success") {
+        const next = current + 1;
+        if (next >= consecutiveNeeded) {
+          chapterGlobalUsed[consecutiveKey] = 0;
+          consecutiveGateAllowsAdvance = true;
+        } else {
+          chapterGlobalUsed[consecutiveKey] = next;
+          consecutiveGateAllowsAdvance = false;
+        }
+      } else {
+        chapterGlobalUsed[consecutiveKey] = 0;
+      }
     }
 
     const anchorEffectKey = "prevent_stall_limited_refill";
@@ -1621,17 +2248,16 @@ export async function endActions(gameId: string, actorUid: string) {
     const discardedThisPulse: PulseCard[] = [];
     for (const seat of activeSeats) {
       const entry = played[seat]!;
-      discard.push(entry.card);
-      discardedThisPulse.push(entry.card);
-      if (entry.extraCard) {
-        discard.push(entry.extraCard);
-        discardedThisPulse.push(entry.extraCard);
+      const manifested = manifestedCards(entry);
+      for (const card of manifested) {
+        discard.push(card);
+        discardedThisPulse.push(card);
       }
     }
 
     const anyMatchedTerrain = activeSeats.some((seat) => {
       const entry = played[seat]!;
-      const suits = [entry.card.suit, entry.extraCard?.suit].filter(Boolean) as PulseSuit[];
+      const suits = manifestedCards(entry).map((card) => card.suit);
       return suits.some((s) => s !== "prism" && s === terrain.suit);
     });
 
@@ -1660,13 +2286,29 @@ export async function endActions(gameId: string, actorUid: string) {
       }
     }
 
+    const followSuitEffect = locationEffects.find((e) => e?.type === "follow_suit_or_friction") as any;
+    if (followSuitEffect) {
+      const herald = activeSeats.find((seat) => hasEffect(effectsForSeat(data, seat), "must_play_first_faceup")) ?? null;
+      const heraldEntry = herald ? played[herald] : null;
+      const heraldSuit = heraldEntry?.card?.suit ?? null;
+      const penalty = Math.max(0, Number(followSuitEffect.friction) || 0);
+      if (heraldSuit && heraldSuit !== "prism" && penalty > 0) {
+        for (const seat of activeSeats) {
+          if (seat === herald) continue;
+          const suits = manifestedCards(played[seat]).map((card) => card.suit);
+          const follows = suits.includes("prism") || suits.includes(heraldSuit);
+          if (!follows) heat += penalty;
+        }
+      }
+    }
+
     const frictionUnlessEtherOrPrism = locationEffects.find((e) => e?.type === "friction_unless_two_ether_or_prism") as any;
     if (frictionUnlessEtherOrPrism) {
       const threshold = Math.max(1, Number(frictionUnlessEtherOrPrism.threshold) || 2);
       const amount = Number(frictionUnlessEtherOrPrism.amount) || 0;
       const etherOrPrismCount = activeSeats.reduce((count, seat) => {
         const entry = played[seat]!;
-        const suits = [entry.card.suit, entry.extraCard?.suit].filter(Boolean) as PulseSuit[];
+        const suits = manifestedCards(entry).map((card) => card.suit);
         return count + suits.filter((s) => s === "ether" || s === "prism").length;
       }, 0);
       if (etherOrPrismCount < threshold) heat += amount;
@@ -1688,7 +2330,13 @@ export async function endActions(gameId: string, actorUid: string) {
 	    const baseHandCapacity = data.baseHandCapacity ?? 5;
 	    const refill = (seat: PlayerSlot) => {
 	      const cap = handCapacityForSeat(
-	        { baseHandCapacity, partPicks: data.partPicks, locationId: data.locationId, seatSigils: data.seatSigils },
+	        {
+            baseHandCapacity,
+            partPicks: data.partPicks,
+            locationId: data.locationId,
+            seatSigils: data.seatSigils,
+            gameMode: data.gameMode,
+          },
 	        seat
 	      );
       const h = [...(hands[seat] ?? [])];
@@ -1712,7 +2360,7 @@ export async function endActions(gameId: string, actorUid: string) {
       if (hasEffect(effectsForSeat(data, seat), "disable_match_refill_on_failure")) return false;
       const entry = played[seat];
       if (!entry?.card) return false;
-      const suits = [entry.card.suit, entry.extraCard?.suit].filter(Boolean) as PulseSuit[];
+      const suits = manifestedCards(entry).map((card) => card.suit);
       if (entry.resonanceSuitOverride) suits.push(entry.resonanceSuitOverride);
       return suits.some((s) => s !== "prism" && s === terrain.suit);
     };
@@ -1876,10 +2524,14 @@ export async function endActions(gameId: string, actorUid: string) {
       for (const seat of SLOTS) refill(seat);
     }
 
-    const advance = result !== "undershoot";
-    const nextIndex = advance ? terrainIndex + 1 : terrainIndex;
+    const terrainStride = useThreeTerrains ? terrainSet.length : 1;
+    const advance = result === "success" && consecutiveGateAllowsAdvance;
+    const nextIndex = advance ? terrainIndex + terrainStride : terrainIndex;
     const nextStep = advance ? (data.step ?? 1) + 1 : (data.step ?? 1);
     const gameMode = (data.gameMode ?? "campaign") as GameMode;
+    const campaignVariant = normalizeCampaignVariant(data);
+    const campaignRandomFaculties = normalizeCampaignRandomFaculties(data);
+    const campaignPathId = normalizeCampaignPathId(data);
     const chapter = data.chapter ?? 1;
 
     const nextLog = {
@@ -1897,7 +2549,7 @@ export async function endActions(gameId: string, actorUid: string) {
 
     const endedByDamage = hp <= 0;
     const completedChapter = advance && nextIndex >= terrainDeck.length;
-    const completedSingleLocationRun = completedChapter && gameMode === "single_location";
+    const completedSingleLocationRun = completedChapter && (gameMode === "single_location" || gameMode === "tutorial");
     const locationSigilReward = completedChapter && gameMode === "campaign" ? location?.sigilReward : null;
     const rewardTier = Math.max(1, Number(locationSigilReward?.tier) || 1);
     const rewardReveal = Math.max(0, Number(locationSigilReward?.reveal) || 0);
@@ -1905,23 +2557,51 @@ export async function endActions(gameId: string, actorUid: string) {
     const shouldLocationSigilReward = Boolean(locationSigilReward && rewardReveal > 0 && rewardChoose > 0);
     const nextStage = chapter + 1;
     const nextLocations =
-      completedChapter && gameMode === "campaign" ? getLocationsForStage(nextStage).map((l) => l.id) : [];
-    const nextPulsePhase = preSelectionSeats({ locationId: data.locationId, partPicks: data.partPicks }).length
+      completedChapter && (gameMode === "campaign" || gameMode === "tutorial")
+        ? gameMode === "campaign"
+          ? campaignLocationOptionsForChapter(nextStage, campaignVariant, campaignPathId)
+          : getLocationsForStage(nextStage).map((l) => l.id)
+        : [];
+    const autoLocationCampaign = gameMode === "campaign" && campaignVariant !== "free_choice" && nextLocations.length === 1;
+    const nextAutoLocationId = autoLocationCampaign ? nextLocations[0] ?? null : null;
+    let partPicksForNext = { ...(data.partPicks ?? {}) } as Partial<Record<PlayerSlot, string>>;
+    const rotateFaculties = result === "success" && locationEffects.some((e) => e?.type === "rotate_faculties_clockwise_on_success");
+    if (rotateFaculties) {
+      partPicksForNext = {
+        p1: data.partPicks?.p3,
+        p2: data.partPicks?.p1,
+        p3: data.partPicks?.p2,
+      };
+    }
+
+    const nextPulsePhase = preSelectionSeats({ locationId: data.locationId, partPicks: partPicksForNext, gameMode: data.gameMode }).length
       ? ("pre_selection" as const)
       : ("selection" as const);
-    const nextExchangeFrom = mandatoryExchangeSeat({ locationId: data.locationId, partPicks: data.partPicks });
+    const nextExchangeFrom = mandatoryExchangeSeat({
+      locationId: data.locationId,
+      partPicks: partPicksForNext,
+      gameMode: data.gameMode,
+    });
     const nextExchange =
       nextPulsePhase !== "pre_selection" && nextExchangeFrom
         ? { from: nextExchangeFrom, status: "awaiting_offer" as const }
         : null;
-    const nextSkipThisPulse = { ...(data.skipNextPulse ?? {}) };
+    let nextSkipThisPulse = { ...(data.skipNextPulse ?? {}) };
+    const conductorNext = applyConductorTransfersForPulse(
+      { locationId: data.locationId, partPicks: partPicksForNext, players: data.players, gameMode: data.gameMode },
+      hands
+    );
+    if (Object.keys(conductorNext.skipThisPulse).length) {
+      nextSkipThisPulse = conductorNext.skipThisPulse;
+    }
+    const nextConductorPasses = conductorNext.conductorPasses;
 
     const basePatch: Record<string, any> = {
       golem: { hp, heat },
       pulseDeck: deck,
       pulseDiscard: discard,
       lastDiscarded: discardedThisPulse,
-      hands,
+      hands: conductorNext.hands,
       played: {},
       terrainIndex: advance ? (nextIndex >= terrainDeck.length ? 0 : nextIndex) : terrainIndex,
       step: nextStep,
@@ -1929,6 +2609,8 @@ export async function endActions(gameId: string, actorUid: string) {
       exchange: nextExchange,
       skipThisPulse: nextSkipThisPulse,
       skipNextPulse: {},
+      conductorPasses: nextConductorPasses,
+      partPicks: partPicksForNext,
       lastOutcome: {
         result,
         total,
@@ -1965,74 +2647,99 @@ export async function endActions(gameId: string, actorUid: string) {
     }
 
     if (completedChapter) {
-      if (shouldLocationSigilReward) {
-        const rewardPool = revealSigilsByTier(rewardTier, rewardReveal);
-        const rewardMaxPicks = Math.min(Math.max(1, rewardChoose), rewardPool.length);
-        if (!rewardPool.length) {
+      const nextChapterResetPatch: Record<string, any> = {
+        ...basePatch,
+        chapter: nextStage,
+        step: 1,
+        locationId: null,
+        locationOptions: nextLocations,
+        locationVotes: {},
+        partPicks: {},
+        optionalPartId: null,
+        partAssignments: {},
+        chapterAbilityUsed: {},
+        chapterGlobalUsed: {},
+        pulseDeck: [],
+        pulseDiscard: discard,
+        lastDiscarded: discardedThisPulse,
+        hands: {},
+        reservoir: null,
+        reservoir2: null,
+        exchange: null,
+        skipThisPulse: {},
+        skipNextPulse: {},
+        conductorPasses: deleteField(),
+        terrainDeck: [],
+        terrainDeckType: deleteField(),
+        terrainIndex: 0,
+        played: {},
+        pulsePhase: "selection" as const,
+        sigilDraftContext: deleteField(),
+        sigilDraftTier: deleteField(),
+        sigilDraftPool: deleteField(),
+        sigilDraftAssignments: deleteField(),
+        sigilDraftMaxPicks: deleteField(),
+        updatedAt: serverTimestamp(),
+      };
+
+      const enterNextChapter = () => {
+        if (!nextLocations.length) {
           tx.update(gameRef, {
             ...basePatch,
-            // Start next stage at location selection; re-deal happens after part confirmation.
-            chapter: nextStage,
-            step: 1,
-            phase: "choose_location" as const,
-            locationId: null,
-            locationOptions: nextLocations,
-            locationVotes: {},
-            partPicks: {},
-            optionalPartId: null,
-            partAssignments: {},
-            chapterAbilityUsed: {},
-            chapterGlobalUsed: {},
-            pulseDeck: [],
-            pulseDiscard: discard,
-            lastDiscarded: discardedThisPulse,
-            hands: {},
-            reservoir: null,
-            reservoir2: null,
+            status: "completed" as GameStatus,
+            endedReason: "win" as const,
+            completedAt: serverTimestamp(),
             exchange: null,
-            skipThisPulse: {},
-            skipNextPulse: {},
-            terrainDeck: [],
-            terrainDeckType: deleteField(),
-            terrainIndex: 0,
-            played: {},
-            pulsePhase: "selection" as const,
-            sigilDraftContext: deleteField(),
-            sigilDraftTier: deleteField(),
-            sigilDraftPool: deleteField(),
-            sigilDraftAssignments: deleteField(),
-            sigilDraftMaxPicks: deleteField(),
             updatedAt: serverTimestamp(),
           });
           return;
         }
+
+        if (autoLocationCampaign && nextAutoLocationId) {
+          if (campaignRandomFaculties) {
+            const randomPicks = randomPartPicksForLocation(nextAutoLocationId);
+            if (!randomPicks) throw new Error("Unable to generate random faculty assignment for next chapter.");
+            const playPatch = buildPlayPhasePatchFromPicks(
+              { ...data, locationId: nextAutoLocationId, chapter: nextStage, gameMode },
+              randomPicks
+            );
+            tx.update(gameRef, {
+              ...nextChapterResetPatch,
+              locationId: nextAutoLocationId,
+              ...playPatch,
+              updatedAt: serverTimestamp(),
+            });
+            return;
+          }
+
+          tx.update(gameRef, {
+            ...nextChapterResetPatch,
+            locationId: nextAutoLocationId,
+            phase: "choose_parts" as const,
+            partPicks: {},
+            updatedAt: serverTimestamp(),
+          });
+          return;
+        }
+
         tx.update(gameRef, {
-          ...basePatch,
-          chapter: nextStage,
-          step: 1,
-          phase: "choose_sigils" as const,
+          ...nextChapterResetPatch,
+          phase: "choose_location" as const,
           locationId: null,
-          locationOptions: nextLocations,
-          locationVotes: {},
-          partPicks: {},
-          optionalPartId: null,
-          partAssignments: {},
-          chapterAbilityUsed: {},
-          chapterGlobalUsed: {},
-          pulseDeck: [],
-          pulseDiscard: discard,
-          lastDiscarded: discardedThisPulse,
-          hands: {},
-          reservoir: null,
-          reservoir2: null,
-          exchange: null,
-          skipThisPulse: {},
-          skipNextPulse: {},
-          terrainDeck: [],
-          terrainDeckType: deleteField(),
-          terrainIndex: 0,
-          played: {},
-          pulsePhase: "selection" as const,
+          updatedAt: serverTimestamp(),
+        });
+      };
+
+      if (shouldLocationSigilReward) {
+        const rewardPool = revealSigilsByTier(rewardTier, rewardReveal);
+        const rewardMaxPicks = Math.min(Math.max(1, rewardChoose), rewardPool.length);
+        if (!rewardPool.length) {
+          enterNextChapter();
+          return;
+        }
+        tx.update(gameRef, {
+          ...nextChapterResetPatch,
+          phase: "choose_sigils" as const,
           sigilDraftContext: "reward_location" as const,
           sigilDraftTier: rewardTier,
           sigilDraftPool: rewardPool,
@@ -2043,52 +2750,7 @@ export async function endActions(gameId: string, actorUid: string) {
         return;
       }
 
-      if (nextLocations.length) {
-        tx.update(gameRef, {
-          ...basePatch,
-          // Start next stage at location selection; re-deal happens after part confirmation.
-          chapter: nextStage,
-          step: 1,
-          phase: "choose_location" as const,
-          locationId: null,
-          locationOptions: nextLocations,
-          locationVotes: {},
-          partPicks: {},
-          optionalPartId: null,
-          partAssignments: {},
-          chapterAbilityUsed: {},
-          chapterGlobalUsed: {},
-          pulseDeck: [],
-          pulseDiscard: discard,
-          lastDiscarded: discardedThisPulse,
-          hands: {},
-          reservoir: null,
-          reservoir2: null,
-          exchange: null,
-          skipThisPulse: {},
-          skipNextPulse: {},
-          terrainDeck: [],
-          terrainDeckType: deleteField(),
-          terrainIndex: 0,
-          played: {},
-          pulsePhase: "selection" as const,
-          sigilDraftContext: deleteField(),
-          sigilDraftTier: deleteField(),
-          sigilDraftPool: deleteField(),
-          sigilDraftAssignments: deleteField(),
-          sigilDraftMaxPicks: deleteField(),
-          updatedAt: serverTimestamp(),
-        });
-      } else {
-        tx.update(gameRef, {
-          ...basePatch,
-          status: "completed" as GameStatus,
-          endedReason: "win" as const,
-          completedAt: serverTimestamp(),
-          exchange: null,
-          updatedAt: serverTimestamp(),
-        });
-      }
+      enterNextChapter();
       return;
     }
 

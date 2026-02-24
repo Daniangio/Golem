@@ -2,7 +2,8 @@ import React, { useEffect, useMemo, useState } from "react";
 import { useNavigate } from "react-router-dom";
 import { createGameAndJoin, playerCount, subscribeOpenGames, type GameSummary } from "../lib/firestoreGames";
 import { useAuthUser } from "../lib/useAuth";
-import type { GameMode } from "../types";
+import { getAllCampaignPaths } from "../game/locations";
+import type { CampaignVariant, GameMode } from "../types";
 
 export default function Lobby() {
   const nav = useNavigate();
@@ -11,6 +12,10 @@ export default function Lobby() {
 
   const [visibility, setVisibility] = useState<"public" | "private">("public");
   const [gameMode, setGameMode] = useState<GameMode>("campaign");
+  const campaignPaths = useMemo(() => getAllCampaignPaths(), []);
+  const [campaignVariant, setCampaignVariant] = useState<CampaignVariant>("free_choice");
+  const [campaignRandomFaculties, setCampaignRandomFaculties] = useState(false);
+  const [campaignPathId, setCampaignPathId] = useState<string>(campaignPaths[0]?.id ?? "");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
 
@@ -52,7 +57,11 @@ export default function Lobby() {
     setBusy(true);
     setMsg(null);
     try {
-      const gameId = await createGameAndJoin(uid, displayName, visibility, gameMode);
+      const gameId = await createGameAndJoin(uid, displayName, visibility, gameMode, {
+        campaignVariant,
+        campaignRandomFaculties,
+        campaignPathId: campaignVariant === "preset_path" ? campaignPathId : null,
+      });
       nav(`/game/${gameId}`);
     } catch (e) {
       setMsg(String(e));
@@ -101,8 +110,57 @@ export default function Lobby() {
             >
               <option value="campaign">Campaign (Sphere by Sphere)</option>
               <option value="single_location">Single location</option>
+              <option value="tutorial">Tutorial (no location/faculty effects)</option>
             </select>
           </div>
+
+          {gameMode === "campaign" && (
+            <div>
+              <label className="block text-sm font-medium text-slate-700">Campaign flow</label>
+              <select
+                value={campaignVariant}
+                onChange={(e) => setCampaignVariant(e.target.value as CampaignVariant)}
+                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-900 shadow-sm outline-none focus:border-slate-400"
+              >
+                <option value="free_choice">Free choice (vote among available locations)</option>
+                <option value="random_choice">Random location each sphere</option>
+                <option value="preset_path">Preset path (fixed route)</option>
+              </select>
+
+              {campaignVariant === "preset_path" && (
+                <div className="mt-2 space-y-2">
+                  <select
+                    value={campaignPathId}
+                    onChange={(e) => setCampaignPathId(e.target.value)}
+                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-900 shadow-sm outline-none focus:border-slate-400"
+                  >
+                    {campaignPaths.map((path) => (
+                      <option key={path.id} value={path.id}>
+                        {path.name} ({path.difficulty})
+                      </option>
+                    ))}
+                  </select>
+                  {campaignPaths.find((p) => p.id === campaignPathId) && (
+                    <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
+                      {campaignPaths.find((p) => p.id === campaignPathId)?.lore}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {campaignVariant === "random_choice" && (
+                <label className="mt-2 flex cursor-pointer items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-700">
+                  <input
+                    type="checkbox"
+                    checked={campaignRandomFaculties}
+                    onChange={(e) => setCampaignRandomFaculties(e.target.checked)}
+                    className="h-4 w-4"
+                  />
+                  Randomly assign faculties (compulsory respected)
+                </label>
+              )}
+            </div>
+          )}
         </div>
 
         <button
@@ -146,7 +204,11 @@ export default function Lobby() {
                           <div className="font-semibold text-slate-800">Room {g.id}</div>
                           <div className="text-xs text-slate-500">
                             Players: {count}/3 • {full ? "Full" : "Joinable"} •{" "}
-                            {g.gameMode === "single_location" ? "Single location" : "Campaign"}
+                            {g.gameMode === "single_location"
+                              ? "Single location"
+                              : g.gameMode === "tutorial"
+                                ? "Tutorial"
+                                : "Campaign"}
                           </div>
                         </div>
                         <span className="text-xs font-semibold text-slate-500">Lobby</span>
@@ -177,7 +239,11 @@ export default function Lobby() {
                           <div className="font-semibold text-slate-800">Game {g.id}</div>
                           <div className="text-xs text-slate-500">
                             Players: {count}/3 • Sphere {chapter} • Pulse {step} •{" "}
-                            {g.gameMode === "single_location" ? "Single location" : "Campaign"}
+                            {g.gameMode === "single_location"
+                              ? "Single location"
+                              : g.gameMode === "tutorial"
+                                ? "Tutorial"
+                                : "Campaign"}
                           </div>
                         </div>
                         <span className="text-xs font-semibold text-emerald-700">Active</span>

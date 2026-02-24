@@ -28,6 +28,9 @@ export function LocationChoiceCard({
 }) {
   const [flipped, setFlipped] = useState(false);
   const frontImg = imgSrc(location.image);
+  const ruleText = (location.rule ?? "").trim();
+  const estimatedRuleLines = Math.max(1, Math.ceil(ruleText.length / 36));
+  const ruleMinHeight = Math.min(210, Math.max(92, 56 + estimatedRuleLines * 11));
 
   return (
     <div className="flex flex-col items-stretch gap-3">
@@ -59,29 +62,14 @@ export function LocationChoiceCard({
             )}
 
             <div className="pointer-events-none absolute inset-x-2 top-2 rounded-2xl bg-black/60 px-3 py-2 text-center text-[11px] font-extrabold leading-tight text-white ring-1 ring-white/10">
-              <div
-                style={{
-                  display: "-webkit-box",
-                  WebkitLineClamp: 2,
-                  WebkitBoxOrient: "vertical",
-                  overflow: "hidden",
-                }}
-              >
-                {location.name}
-              </div>
+              <div className="whitespace-pre-wrap break-words">{location.name}</div>
             </div>
 
-            <div className="pointer-events-none absolute inset-x-2 bottom-2 rounded-2xl bg-black/60 px-3 py-2 text-[10px] font-semibold leading-tight text-white/90 ring-1 ring-white/10">
-              <div
-                style={{
-                  display: "-webkit-box",
-                  WebkitLineClamp: 3,
-                  WebkitBoxOrient: "vertical",
-                  overflow: "hidden",
-                }}
-              >
-                {location.rule}
-              </div>
+            <div
+              className="pointer-events-none absolute inset-x-2 bottom-2 rounded-2xl bg-black/60 px-3 py-2.5 text-[10px] font-semibold leading-tight text-white/90 ring-1 ring-white/10"
+              style={{ minHeight: `${ruleMinHeight}px` }}
+            >
+              <div className="whitespace-pre-wrap break-words">{location.rule}</div>
             </div>
           </div>
 
@@ -107,9 +95,9 @@ export function LocationChoiceCard({
                           <span className="text-amber-200">✦</span>
                           <span className="truncate">{p.name}</span>
                         </div>
-                        <div className="pointer-events-none absolute left-0 top-full z-30 mt-2 w-64 rounded-2xl bg-slate-950/95 p-3 text-xs text-white/85 opacity-0 shadow-2xl ring-1 ring-white/10 backdrop-blur peer-hover:opacity-100">
-                          <div className="text-sm font-extrabold text-white">{p.name}</div>
-                          <div className="mt-1 leading-relaxed text-white/75">{p.effect}</div>
+                        <div className="pointer-events-none absolute left-0 top-full z-30 mt-2 w-54 rounded-2xl bg-slate-950/95 p-3 text-xs text-white/85 opacity-0 shadow-2xl ring-1 ring-white/10 backdrop-blur peer-hover:opacity-100">
+                          <div className="text-xxs font-extrabold text-white">{p.name}</div>
+                          <div className="mt-1 text-xxs leading-relaxed text-white/75">{p.effect}</div>
                         </div>
                       </div>
                     ))}

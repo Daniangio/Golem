@@ -93,6 +93,24 @@
     "effects": [{ "type": "swap_and_skip_turn" }]
   },
   {
+    "id": "harmonic_amplifier",
+    "name": "The Harmonic Amplifier",
+    "text": "Convergence Protocol. Active (Actions phase): gain +1 Friction to double the group's total manifested value for this Pulse's resolution.",
+    "effects": [{ "type": "pay_friction_double_manifested_total" }]
+  },
+  {
+    "id": "dyadic_focus",
+    "name": "The Dyadic Focus",
+    "text": "Passive: each card you manifest has its value doubled for resolution.",
+    "effects": [{ "type": "pulse_value_multiplier", "amount": 2 }]
+  },
+  {
+    "id": "triune_focus",
+    "name": "The Triune Focus",
+    "text": "Passive: each card you manifest has its value tripled for resolution.",
+    "effects": [{ "type": "pulse_value_multiplier", "amount": 3 }]
+  },
+  {
     "id": "anchor_of_malkuth",
     "name": "The Anchor of Malkuth",
     "text": "Grounding in matter. Passive (first trigger only): the first time in a Chapter the group Stalls by 3 or less below the Window Min, treat that Pulse as Success. From that trigger onward (including the triggering pulse), you cannot refill through Success or Resonance for the rest of the Chapter. Overshoot and Desperation refills still apply.",
@@ -103,5 +121,23 @@
     "name": "The Vessel of Dualities",
     "text": "The balance of opposites. Passive: If the total sum is exactly the median of the Stability Window (rounded down), reduce Friction to 0. If the sum is exactly the Window's Max or Min, the Golem immediately generates +1 Friction.",
     "effects": [{ "type": "median_heal_boundary_friction" }]
+  },
+  {
+    "id": "burden_of_reversal",
+    "name": "The Burden of Reversal",
+    "text": "Every manifestation is inverted. Your manifested card values are treated as negative.",
+    "effects": [{ "type": "invert_suits_value_sign", "suits": ["cinder", "stone", "ether", "steam", "acid"] }]
+  },
+  {
+    "id": "conductor_of_streams",
+    "name": "The Conductor of Streams",
+    "text": "A designated role. You are the Conductor in this Sphere.",
+    "effects": []
+  },
+  {
+    "id": "herald_of_law",
+    "name": "The Herald of Law",
+    "text": "You manifest first and your first card is face-up during Selection.",
+    "effects": [{ "type": "must_play_first_faceup" }]
   }
 ]

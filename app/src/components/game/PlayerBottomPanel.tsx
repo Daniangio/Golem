@@ -16,6 +16,7 @@ export function PlayerBottomPanel({
   selectedCardId,
   onToggleSelectCard,
   canPlaySelected,
+  playButtonLabel = "Play",
   onPlaySelected,
   canOverflowSelected,
   onOverflowSelected,
@@ -23,6 +24,7 @@ export function PlayerBottomPanel({
   onSwapSkipSelected,
   busy,
   icons,
+  desktopIdlePanel,
   hiddenNote,
 }: {
   mobileLayout?: boolean;
@@ -37,6 +39,7 @@ export function PlayerBottomPanel({
   selectedCardId: string | null;
   onToggleSelectCard: (cardId: string) => void;
   canPlaySelected: boolean;
+  playButtonLabel?: string;
   onPlaySelected: () => void;
   canOverflowSelected: boolean;
   onOverflowSelected: () => void;
@@ -44,6 +47,7 @@ export function PlayerBottomPanel({
   onSwapSkipSelected: () => void;
   busy: boolean;
   icons?: React.ReactNode;
+  desktopIdlePanel?: React.ReactNode;
   hiddenNote?: React.ReactNode;
 }) {
   const mobileCardClass = "h-[102px] w-[68px] rounded-xl";
@@ -70,7 +74,7 @@ export function PlayerBottomPanel({
                     disabled={busy}
                     className="absolute left-1/2 top-0 -translate-x-1/2 rounded-full bg-white px-3 py-1 text-[11px] font-extrabold text-slate-900 shadow disabled:opacity-40"
                   >
-                    Play
+                    {playButtonLabel}
                   </button>
                 )}
                 {selected && canOverflowSelected && (
@@ -135,6 +139,8 @@ export function PlayerBottomPanel({
     );
   }
 
+  const desktopMessageContent = message ?? desktopIdlePanel ?? <div className="text-[11px] text-white/40"> </div>;
+
   return (
     <div className="relative z-30 flex min-h-0 flex-col overflow-visible rounded-3xl bg-white/5 p-2 ring-1 ring-white/10">
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(140px,18%)_minmax(140px,28%)_minmax(0,1fr)_auto] items-stretch gap-2">
@@ -151,7 +157,7 @@ export function PlayerBottomPanel({
         </div>
 
         <div className="min-h-0 overflow-auto rounded-2xl bg-white/5 px-3 py-2 ring-1 ring-white/10">
-          {message ?? <div className="text-[11px] text-white/40"> </div>}
+          {desktopMessageContent}
         </div>
 
         {cardsRow}

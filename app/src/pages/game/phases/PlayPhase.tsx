@@ -2,9 +2,9 @@ import React, { useMemo, useState } from "react";
 import { AnimatedTerrainCard } from "../../../components/game/AnimatedTerrainCard";
 import { CardBack } from "../../../components/game/CardBack";
 import { LocationShowcase } from "../../../components/game/LocationShowcase";
-import { DeckStub, PulseCardMini, PulseCardPreview } from "../../../components/game/PulseCards";
+import { DeckStub, PulseCardMini, PulseCardPreview, TerrainCompactCard } from "../../../components/game/PulseCards";
 import { seatLabel, playerLabel } from "../gameUtils";
-import type { GameDoc, PlayerSlot, Players, TerrainCard } from "../../../types";
+import type { GameDoc, PlayerSlot, Players, PulseCard, TerrainCard } from "../../../types";
 
 type LocationToken = { key: string; label: string; tone: "good" | "muted" };
 
@@ -23,6 +23,7 @@ type PlayPhaseProps = {
   canPeekTerrainDeck: boolean;
   onOpenTerrainDeck: () => void;
   terrain: TerrainCard | null;
+  terrainSet?: TerrainCard[];
   terrainHiddenState: "pre_selection" | "hidden_until_played" | null;
   lastOutcomeResult?: "success" | "undershoot" | "overshoot";
   reservoir: GameDoc["reservoir"];
@@ -32,6 +33,8 @@ type PlayPhaseProps = {
   busy: boolean;
   haveAllPlayed: boolean;
   exchangePending: boolean;
+  canConfirmSelection: boolean;
+  onConfirmSelection: () => void;
   onEndActions: () => void;
   played: GameDoc["played"];
   valueChoicesBySeat: Partial<
@@ -47,6 +50,7 @@ type PlayPhaseProps = {
       }
     >
   >;
+  valueMultiplierBySeat?: Partial<Record<PlayerSlot, number>>;
   players: Players;
   playerNames?: Record<string, string>;
   isOwnOrControlledSeat: (seat: PlayerSlot) => boolean;
@@ -57,9 +61,11 @@ type PlayPhaseProps = {
   canSwapR1Seat: (seat: PlayerSlot) => boolean;
   canSwapR2Seat: (seat: PlayerSlot) => boolean;
   canFuseSeat: (seat: PlayerSlot) => boolean;
+  canAmplifySeat: (seat: PlayerSlot) => boolean;
   onSwapR1: (seat: PlayerSlot) => void;
   onSwapR2: (seat: PlayerSlot) => void;
   onFuse: (seat: PlayerSlot) => void;
+  onAmplify: (seat: PlayerSlot) => void;
 };
 
 const SLOTS: PlayerSlot[] = ["p1", "p2", "p3"];
@@ -79,6 +85,7 @@ export function PlayPhase({
   canPeekTerrainDeck,
   onOpenTerrainDeck,
   terrain,
+  terrainSet,
   terrainHiddenState,
   lastOutcomeResult,
   reservoir,
@@ -88,9 +95,12 @@ export function PlayPhase({
   busy,
   haveAllPlayed,
   exchangePending,
+  canConfirmSelection,
+  onConfirmSelection,
   onEndActions,
   played,
   valueChoicesBySeat,
+  valueMultiplierBySeat,
   players,
   playerNames,
   isOwnOrControlledSeat,
@@ -101,15 +111,17 @@ export function PlayPhase({
   canSwapR1Seat,
   canSwapR2Seat,
   canFuseSeat,
+  canAmplifySeat,
   onSwapR1,
   onSwapR2,
   onFuse,
+  onAmplify,
 }: PlayPhaseProps) {
   const [actionsSeat, setActionsSeat] = useState<PlayerSlot | null>(null);
 
   const hasAnyAction = (seat: PlayerSlot): boolean =>
     Boolean(played?.[seat]?.card) &&
-    (canSwapR1Seat(seat) || canSwapR2Seat(seat) || canFuseSeat(seat) || canSteamSigilSeat(seat));
+    (canSwapR1Seat(seat) || canSwapR2Seat(seat) || canFuseSeat(seat) || canSteamSigilSeat(seat) || canAmplifySeat(seat));
 
   const actionsTitle = useMemo(() => {
     if (!actionsSeat) return null;
@@ -123,8 +135,25 @@ export function PlayPhase({
       {SLOTS.map((seat) => {
         const entry = played?.[seat];
         const valueChoice = valueChoicesBySeat?.[seat];
+        const seatValueMultiplier = Math.max(1, Number(valueMultiplierBySeat?.[seat] ?? 1));
         const seatUid = players[seat] ?? "";
         const seatName = seatUid ? playerLabel(seatUid, playerNames) : seatLabel(seat);
+        const manifestedCardsList: PulseCard[] = entry?.card
+          ? [
+              entry.card,
+              ...(Array.isArray(entry.additionalCards)
+                ? entry.additionalCards
+                : entry.extraCard
+                  ? [entry.extraCard]
+                  : []),
+            ]
+          : [];
+        const stackShift = 10;
+        const stackWidth = 80 + Math.max(0, manifestedCardsList.length - 1) * stackShift;
+        const stackHeight = 120 + Math.max(0, manifestedCardsList.length - 1) * stackShift;
+        const firstAdditionalId = Array.isArray(entry?.additionalCards)
+          ? entry.additionalCards[0]?.id
+          : entry?.extraCard?.id;
         const revealedToAll = Boolean(entry?.revealedDuringSelection && pulsePhase === "selection");
         const showFaceUpInSelection = Boolean(
           entry?.card &&
@@ -135,6 +164,7 @@ export function PlayPhase({
         const canOpenActions = pulsePhase === "actions" && hasAnyAction(seat);
         const isActionSeat = actionsSeat === seat;
         const canSetSeatValue = canSetValueSeat(seat);
+        const amplified = Number(entry?.totalMultiplier ?? 1) > 1;
         const primaryOptions = valueChoice?.primaryOptions ?? [];
         const extraOptions = valueChoice?.extraOptions ?? [];
         const primaryDisplayValue =
@@ -184,96 +214,104 @@ export function PlayPhase({
               {entry?.card ? (
                 pulsePhase === "selection" || pulsePhase === "pre_selection" ? (
                   showFaceUpInSelection ? (
-                    <PulseCardMini card={entry.card} selected={false} lift="none" onClick={() => {}} />
+                    <div className="relative" style={{ width: `${stackWidth}px`, height: `${stackHeight}px` }}>
+                      {manifestedCardsList.map((manifestedCard, cardIndex) => (
+                        <div
+                          key={`${manifestedCard.id}-${cardIndex}`}
+                          className="absolute left-0 top-0"
+                          style={{
+                            transform: `translate(${cardIndex * stackShift}px, ${cardIndex * stackShift}px)`,
+                            zIndex: cardIndex + 1,
+                          }}
+                        >
+                          <PulseCardMini card={manifestedCard} selected={false} lift="none" onClick={() => {}} />
+                          {seatValueMultiplier > 1 && (
+                            <div className="pointer-events-none absolute right-1 top-1 rounded-full bg-indigo-500/35 px-1.5 py-0.5 text-[10px] font-extrabold text-indigo-100 ring-1 ring-indigo-200/30">
+                              ×{seatValueMultiplier}
+                            </div>
+                          )}
+                        </div>
+                      ))}
+                    </div>
                   ) : (
                     <CardBack />
                   )
                 ) : (
-                  <div className="flex flex-row items-center gap-1">
-                    <div
-                      className="relative pt-1"
-                      onClick={(event) => {
-                        if (canCyclePrimary) event.stopPropagation();
-                      }}
-                    >
-                      <PulseCardMini
-                        card={entry.card}
-                        selected={false}
-                        lift="none"
-                        onClick={() => {
-                          if (canCyclePrimary) onCycleCardValue(seat, "primary");
-                        }}
-                      />
-                      {fused && (
-                        <div className="pointer-events-none absolute bottom-2 right-2 rounded-full bg-fuchsia-500/30 px-2 py-0.5 text-[11px] font-extrabold text-fuchsia-100 ring-1 ring-fuchsia-200/20">
-                          0
-                        </div>
-                      )}
-                      {entry.resonanceSuitOverride && (
-                        <div className="pointer-events-none absolute bottom-2 left-2 rounded-full bg-sky-500/30 px-2 py-0.5 text-[10px] font-extrabold text-sky-100 ring-1 ring-sky-200/20">
-                          Steam
-                        </div>
-                      )}
-                      {primaryDisplayValue !== null && (
+                  <div className="relative" style={{ width: `${stackWidth}px`, height: `${stackHeight}px` }}>
+                    {manifestedCardsList.map((manifestedCard, cardIndex) => {
+                      const isPrimary = cardIndex === 0;
+                      const isFirstExtra = cardIndex === 1 && Boolean(firstAdditionalId) && manifestedCard.id === firstAdditionalId;
+                      const canCycleThis = (isPrimary && canCyclePrimary) || (isFirstExtra && canCycleExtra);
+                      const displayValue = isPrimary ? primaryDisplayValue : isFirstExtra ? extraDisplayValue : null;
+                      const displayAuto = isPrimary ? primaryAuto : isFirstExtra ? extraAuto : false;
+
+                      return (
                         <div
-                          className={`absolute left-1/2 top-0 -translate-x-1/2 rounded-full px-2 py-0.5 text-[10px] font-extrabold shadow ring-1 ${
-                            canCyclePrimary
-                              ? "cursor-pointer bg-emerald-400 text-slate-950 ring-emerald-200/60"
-                              : "bg-slate-900/85 text-white/90 ring-white/20"
-                          }`}
+                          key={`${manifestedCard.id}-${cardIndex}`}
+                          className="absolute left-0 top-0"
+                          style={{
+                            transform: `translate(${cardIndex * stackShift}px, ${cardIndex * stackShift}px)`,
+                            zIndex: cardIndex + 1,
+                          }}
                           onClick={(event) => {
-                            if (!canCyclePrimary) return;
-                            event.stopPropagation();
-                            onCycleCardValue(seat, "primary");
+                            if (canCycleThis) event.stopPropagation();
                           }}
-                          title={
-                            canCyclePrimary
-                              ? "Click card or badge to cycle value"
-                              : "Selected value used in resolution"
-                          }
                         >
-                          {primaryDisplayValue}
-                          {primaryAuto ? " • auto" : ""}
-                        </div>
-                      )}
-                    </div>
-                    {entry.extraCard && (
-                      <div
-                        className="relative flex flex-col items-center gap-1"
-                        onClick={(event) => {
-                          if (canCycleExtra) event.stopPropagation();
-                        }}
-                      >
-                        <div className="text-[10px] font-semibold text-emerald-200/80">Overflow</div>
-                        <PulseCardMini
-                          card={entry.extraCard}
-                          selected={false}
-                          lift="none"
-                          className="scale-[0.9]"
-                          onClick={() => {
-                            if (canCycleExtra) onCycleCardValue(seat, "extra");
-                          }}
-                        />
-                        {extraDisplayValue !== null && (
-                          <div
-                            className={`absolute left-1/2 top-4 -translate-x-1/2 rounded-full px-2 py-0.5 text-[10px] font-extrabold shadow ring-1 ${
-                              canCycleExtra
-                                ? "cursor-pointer bg-emerald-400 text-slate-950 ring-emerald-200/60"
-                                : "bg-slate-900/85 text-white/90 ring-white/20"
-                            }`}
-                            onClick={(event) => {
-                              if (!canCycleExtra) return;
-                              event.stopPropagation();
-                              onCycleCardValue(seat, "extra");
+                          <PulseCardMini
+                            card={manifestedCard}
+                            selected={false}
+                            lift="none"
+                            onClick={() => {
+                              if (isPrimary && canCyclePrimary) onCycleCardValue(seat, "primary");
+                              if (isFirstExtra && canCycleExtra) onCycleCardValue(seat, "extra");
                             }}
-                            title={canCycleExtra ? "Click card or badge to cycle value" : "Selected value used in resolution"}
-                          >
-                            {extraDisplayValue}
-                            {extraAuto ? " • auto" : ""}
-                          </div>
-                        )}
-                      </div>
-                    )}
+                          />
+                          {seatValueMultiplier > 1 && (
+                            <div className="pointer-events-none absolute right-1 top-1 rounded-full bg-indigo-500/35 px-1.5 py-0.5 text-[10px] font-extrabold text-indigo-100 ring-1 ring-indigo-200/30">
+                              ×{seatValueMultiplier}
+                            </div>
+                          )}
+                          {isPrimary && fused && (
+                            <div className="pointer-events-none absolute bottom-2 right-2 rounded-full bg-fuchsia-500/30 px-2 py-0.5 text-[11px] font-extrabold text-fuchsia-100 ring-1 ring-fuchsia-200/20">
+                              0
+                            </div>
+                          )}
+                          {isPrimary && entry.resonanceSuitOverride && (
+                            <div className="pointer-events-none absolute bottom-2 left-2 rounded-full bg-sky-500/30 px-2 py-0.5 text-[10px] font-extrabold text-sky-100 ring-1 ring-sky-200/20">
+                              Steam
+                            </div>
+                          )}
+                          {isPrimary && amplified && (
+                            <div className="pointer-events-none absolute top-8 left-2 rounded-full bg-amber-400/35 px-2 py-0.5 text-[10px] font-extrabold text-amber-50 ring-1 ring-amber-200/30">
+                              ×2 Total
+                            </div>
+                          )}
+                          {displayValue !== null && (
+                            <div
+                              className={`absolute left-1/2 top-0 -translate-x-1/2 rounded-full px-2 py-0.5 text-[10px] font-extrabold shadow ring-1 ${
+                                canCycleThis
+                                  ? "cursor-pointer bg-emerald-400 text-slate-950 ring-emerald-200/60"
+                                  : "bg-slate-900/85 text-white/90 ring-white/20"
+                              }`}
+                              onClick={(event) => {
+                                if (!canCycleThis) return;
+                                event.stopPropagation();
+                                if (isPrimary) onCycleCardValue(seat, "primary");
+                                if (isFirstExtra) onCycleCardValue(seat, "extra");
+                              }}
+                              title={
+                                canCycleThis
+                                  ? "Click card or badge to cycle value"
+                                  : "Selected value used in resolution"
+                              }
+                            >
+                              {displayValue}
+                              {displayAuto ? " • auto" : ""}
+                            </div>
+                          )}
+                        </div>
+                      );
+                    })}
                   </div>
                 )
               ) : (
@@ -295,13 +333,21 @@ export function PlayPhase({
       {isMobileLayout && locationName ? (
         <div className="mt-1 truncate text-[10px] font-semibold text-white/70">{locationName}</div>
       ) : null}
-      <div className="mt-2 flex items-center justify-center gap-2">
+      <div className="mt-2 flex items-start justify-center gap-2">
         <DeckStub
           label="Deck"
           count={terrainRemaining}
           onClick={!terrainHiddenState && terrainDeckLength > 0 && canPeekTerrainDeck ? onOpenTerrainDeck : undefined}
         />
-        <AnimatedTerrainCard terrain={terrain} hiddenState={terrainHiddenState} lastOutcomeResult={lastOutcomeResult} />
+        {terrainSet && terrainSet.length > 1 && !terrainHiddenState ? (
+          <div className="flex flex-col gap-1.5">
+            {terrainSet.map((t) => (
+              <TerrainCompactCard key={t.id} suit={t.suit} min={t.min} max={t.max} />
+            ))}
+          </div>
+        ) : (
+          <AnimatedTerrainCard terrain={terrain} hiddenState={terrainHiddenState} lastOutcomeResult={lastOutcomeResult} />
+        )}
       </div>
     </div>
   );
@@ -329,6 +375,16 @@ export function PlayPhase({
     <div className={`${isMobileLayout ? "min-h-0 overflow-auto rounded-2xl bg-black/35 p-2 ring-1 ring-white/15" : "w-[330px] shrink-0 rounded-2xl bg-white/5 p-2 ring-1 ring-white/10"}`}>
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="text-xs font-semibold text-white/80">Played cards</div>
+        {pulsePhase === "selection" && canConfirmSelection && (
+          <button
+            type="button"
+            onClick={onConfirmSelection}
+            disabled={busy || !haveAllPlayed || exchangePending}
+            className="rounded-2xl bg-sky-400 px-3 py-1 text-[11px] font-extrabold text-slate-950 shadow-sm disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            Reveal
+          </button>
+        )}
         {pulsePhase === "actions" && isHost && (
           <button
             type="button"
@@ -445,6 +501,19 @@ export function PlayPhase({
                   className="rounded-2xl bg-fuchsia-400 px-3 py-2 text-[12px] font-extrabold text-slate-950 shadow disabled:opacity-40"
                 >
                   Dissolve to 0
+                </button>
+              )}
+              {canAmplifySeat(actionsSeat) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onAmplify(actionsSeat);
+                    setActionsSeat(null);
+                  }}
+                  disabled={busy}
+                  className="rounded-2xl bg-amber-300 px-3 py-2 text-[12px] font-extrabold text-slate-950 shadow disabled:opacity-40"
+                >
+                  Amplify Total ×2 (+1 Friction)
                 </button>
               )}
               {canSteamSigilSeat(actionsSeat) && (
