@@ -63,9 +63,12 @@ export type PlayedCard = {
   additionalCards?: PulseCard[];
   totalMultiplier?: number; // e.g. Harmonic Amplifier -> x2 total
   valueOverride?: number; // e.g. Fuse -> 0
+  postRevealValueDelta?: number; // e.g. Sigil of Shattered Clay
   valueChoice?: number; // explicit chosen value for variable primary card
   extraValueChoice?: number; // explicit chosen value for variable extra card
   resonanceSuitOverride?: Exclude<PulseSuit, "prism">; // e.g. Sigil of Steam
+  resonanceGiftSeat?: PlayerSlot; // e.g. Sigil of the Constricted Breath
+  disableResonanceRefill?: boolean; // e.g. Sigil of the Great Matrix
   revealedDuringSelection?: boolean; // Unveiled Radiance
   bySeat: PlayerSlot;
   at: any; // serverTimestamp
@@ -154,6 +157,8 @@ export type GameDoc = {
   played?: PlayedCards;
   chapterAbilityUsed?: ChapterAbilityUsed; // once-per-chapter part abilities
   chapterGlobalUsed?: ChapterGlobalUsed; // once-per-chapter global/location effects
+  pulseFrictionAnchor?: { key: string; hp: number; heat: number } | null;
+  frictionIgnoredPulseKey?: string | null;
   pendingDiscard?: PendingDiscardState;
   lastOutcome?: {
     result: "success" | "undershoot" | "overshoot";

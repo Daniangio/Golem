@@ -7,7 +7,7 @@ const OUT_MS = 520;
 const IN_MS = 620;
 const DEBUG_STORE_KEY = "golem_debug_terrain_anim_events";
 
-type HiddenState = "pre_selection" | "hidden_until_played" | null;
+type HiddenState = "pre_selection" | "hidden_until_played" | "suit_only" | null;
 
 type TransitionState = {
   step: "out" | "in";
@@ -173,6 +173,20 @@ export function AnimatedTerrainCard({
             Play first
           </div>
         </CardBack>
+        {debugHud}
+      </>
+    );
+  }
+
+  if (!transition && hiddenState === "suit_only" && terrain) {
+    return (
+      <>
+        <div className="relative h-[120px] w-[80px] rounded-xl bg-gradient-to-b from-slate-800 to-slate-950 p-3 shadow-xl ring-1 ring-white/15">
+          <div className="text-center text-[11px] font-extrabold uppercase tracking-[0.08em] text-white/95">
+            {terrain.suit}
+          </div>
+          <div className="mt-3 text-center text-[10px] font-semibold text-white/65">Range hidden</div>
+        </div>
         {debugHud}
       </>
     );

@@ -24,7 +24,7 @@ type PlayPhaseProps = {
   onOpenTerrainDeck: () => void;
   terrain: TerrainCard | null;
   terrainSet?: TerrainCard[];
-  terrainHiddenState: "pre_selection" | "hidden_until_played" | null;
+  terrainHiddenState: "pre_selection" | "hidden_until_played" | "suit_only" | null;
   lastOutcomeResult?: "success" | "undershoot" | "overshoot";
   reservoir: GameDoc["reservoir"];
   reservoir2: GameDoc["reservoir2"];
@@ -57,15 +57,23 @@ type PlayPhaseProps = {
   canSetValueSeat: (seat: PlayerSlot) => boolean;
   onCycleCardValue: (seat: PlayerSlot, target: "primary" | "extra") => void;
   canSteamSigilSeat: (seat: PlayerSlot) => boolean;
+  canBalancingScaleMinus1Seat: (seat: PlayerSlot) => boolean;
+  canBalancingScaleMinus2Seat: (seat: PlayerSlot) => boolean;
+  canTemperedCrucibleSeat: (seat: PlayerSlot) => boolean;
   onSteamSigil: (seat: PlayerSlot) => void;
+  onBalancingScale: (seat: PlayerSlot, amount: 1 | 2) => void;
+  onTemperedCrucible: (seat: PlayerSlot) => void;
   canSwapR1Seat: (seat: PlayerSlot) => boolean;
   canSwapR2Seat: (seat: PlayerSlot) => boolean;
   canFuseSeat: (seat: PlayerSlot) => boolean;
   canAmplifySeat: (seat: PlayerSlot) => boolean;
+  canResonanceGiftSeat: (seat: PlayerSlot) => boolean;
+  resonanceGiftTargetBySeat?: Partial<Record<PlayerSlot, PlayerSlot | null>>;
   onSwapR1: (seat: PlayerSlot) => void;
   onSwapR2: (seat: PlayerSlot) => void;
   onFuse: (seat: PlayerSlot) => void;
   onAmplify: (seat: PlayerSlot) => void;
+  onSetResonanceGiftSeat: (seat: PlayerSlot, target: PlayerSlot | null) => void;
 };
 
 const SLOTS: PlayerSlot[] = ["p1", "p2", "p3"];
@@ -107,21 +115,39 @@ export function PlayPhase({
   canSetValueSeat,
   onCycleCardValue,
   canSteamSigilSeat,
+  canBalancingScaleMinus1Seat,
+  canBalancingScaleMinus2Seat,
+  canTemperedCrucibleSeat,
   onSteamSigil,
+  onBalancingScale,
+  onTemperedCrucible,
   canSwapR1Seat,
   canSwapR2Seat,
   canFuseSeat,
   canAmplifySeat,
+  canResonanceGiftSeat,
+  resonanceGiftTargetBySeat,
   onSwapR1,
   onSwapR2,
   onFuse,
   onAmplify,
+  onSetResonanceGiftSeat,
 }: PlayPhaseProps) {
   const [actionsSeat, setActionsSeat] = useState<PlayerSlot | null>(null);
 
   const hasAnyAction = (seat: PlayerSlot): boolean =>
     Boolean(played?.[seat]?.card) &&
-    (canSwapR1Seat(seat) || canSwapR2Seat(seat) || canFuseSeat(seat) || canSteamSigilSeat(seat) || canAmplifySeat(seat));
+    (
+      canSwapR1Seat(seat) ||
+      canSwapR2Seat(seat) ||
+      canFuseSeat(seat) ||
+      canSteamSigilSeat(seat) ||
+      canBalancingScaleMinus1Seat(seat) ||
+      canBalancingScaleMinus2Seat(seat) ||
+      canTemperedCrucibleSeat(seat) ||
+      canAmplifySeat(seat) ||
+      canResonanceGiftSeat(seat)
+    );
 
   const actionsTitle = useMemo(() => {
     if (!actionsSeat) return null;
@@ -286,6 +312,15 @@ export function PlayPhase({
                               ×2 Total
                             </div>
                           )}
+                          {isPrimary &&
+                            typeof entry.postRevealValueDelta === "number" &&
+                            entry.postRevealValueDelta !== 0 && (
+                              <div className="pointer-events-none absolute top-8 right-2 rounded-full bg-purple-500/35 px-2 py-0.5 text-[10px] font-extrabold text-purple-100 ring-1 ring-purple-200/30">
+                                {entry.postRevealValueDelta > 0
+                                  ? `+${entry.postRevealValueDelta}`
+                                  : `${entry.postRevealValueDelta}`}
+                              </div>
+                            )}
                           {displayValue !== null && (
                             <div
                               className={`absolute left-1/2 top-0 -translate-x-1/2 rounded-full px-2 py-0.5 text-[10px] font-extrabold shadow ring-1 ${
@@ -529,6 +564,89 @@ export function PlayPhase({
                   Force Steam Resonance
                 </button>
               )}
+              {canBalancingScaleMinus1Seat(actionsSeat) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onBalancingScale(actionsSeat, 1);
+                    setActionsSeat(null);
+                  }}
+                  disabled={busy}
+                  className="rounded-2xl bg-amber-300 px-3 py-2 text-[12px] font-extrabold text-slate-950 shadow disabled:opacity-40"
+                >
+                  Balance -1
+                </button>
+              )}
+              {canBalancingScaleMinus2Seat(actionsSeat) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onBalancingScale(actionsSeat, 2);
+                    setActionsSeat(null);
+                  }}
+                  disabled={busy}
+                  className="rounded-2xl bg-orange-300 px-3 py-2 text-[12px] font-extrabold text-slate-950 shadow disabled:opacity-40"
+                >
+                  Balance -2
+                </button>
+              )}
+              {canTemperedCrucibleSeat(actionsSeat) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onTemperedCrucible(actionsSeat);
+                    setActionsSeat(null);
+                  }}
+                  disabled={busy}
+                  className="rounded-2xl bg-rose-300 px-3 py-2 text-[12px] font-extrabold text-slate-950 shadow disabled:opacity-40"
+                >
+                  Temper Pulse (ignore Friction)
+                </button>
+              )}
+              {canResonanceGiftSeat(actionsSeat) &&
+                (() => {
+                  const currentTarget = resonanceGiftTargetBySeat?.[actionsSeat] ?? null;
+                  const targets = SLOTS.filter((seat) => seat !== actionsSeat && Boolean(players[seat]));
+                  return (
+                    <div className="rounded-2xl bg-white/5 p-2 ring-1 ring-white/10">
+                      <div className="mb-2 text-[11px] font-semibold text-white/75">Constricted Breath target</div>
+                      <div className="grid gap-1.5">
+                        {targets.map((targetSeat) => {
+                          const targetUid = players[targetSeat] ?? "";
+                          const targetName = targetUid ? playerLabel(targetUid, playerNames) : seatLabel(targetSeat);
+                          const active = currentTarget === targetSeat;
+                          return (
+                            <button
+                              key={targetSeat}
+                              type="button"
+                              onClick={() => onSetResonanceGiftSeat(actionsSeat, targetSeat)}
+                              disabled={busy}
+                              className={`rounded-2xl px-3 py-1.5 text-left text-[11px] font-extrabold shadow-sm disabled:opacity-40 ${
+                                active
+                                  ? "bg-emerald-400 text-slate-950"
+                                  : "bg-white/15 text-white hover:bg-white/25"
+                              }`}
+                            >
+                              Gift refill → {targetName}
+                            </button>
+                          );
+                        })}
+                        <button
+                          type="button"
+                          onClick={() => onSetResonanceGiftSeat(actionsSeat, null)}
+                          disabled={busy}
+                          className={`rounded-2xl px-3 py-1.5 text-left text-[11px] font-extrabold shadow-sm disabled:opacity-40 ${
+                            currentTarget === null
+                              ? "bg-emerald-400 text-slate-950"
+                              : "bg-white/15 text-white hover:bg-white/25"
+                          }`}
+                        >
+                          Auto target
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })()}
               {!hasAnyAction(actionsSeat) && <div className="text-[11px] text-white/60">No action available.</div>}
             </div>
           </div>

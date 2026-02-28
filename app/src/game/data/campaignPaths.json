@@ -12,7 +12,7 @@
       { "sphere": 5, "locationId": "S5_TIPHARETH_HERALDS_STRAIN" },
       { "sphere": 6, "locationId": "S6_GEVURAH_CRUCIBLE_OF_EXCESS" },
       { "sphere": 7, "locationId": "S7_CHESED_INVERTED_TIDE" },
-      { "sphere": 8, "locationId": "S8_BINAH_DOUBLE_SEAL" }
+      { "sphere": 8, "locationId": "S8_BINAH_THE_DOUBLE_SEAL" }
     ]
   },
   {
@@ -28,7 +28,7 @@
       { "sphere": 5, "locationId": "S5_TIPHARETH_COMMUNION_CORE" },
       { "sphere": 6, "locationId": "S6_GEVURAH_CRUCIBLE_OF_EXCESS" },
       { "sphere": 7, "locationId": "S7_CHESED_MIRROR_OF_GRACE" },
-      { "sphere": 8, "locationId": "S8_BINAH_DOUBLE_SEAL" }
+      { "sphere": 8, "locationId": "S8_BINAH_THE_DOUBLE_SEAL" }
     ]
   },
   {
@@ -44,7 +44,7 @@
       { "sphere": 5, "locationId": "S5_TIPHARETH_CHAOTIC_MANDALA" },
       { "sphere": 6, "locationId": "S6_GEVURAH_CRUCIBLE_OF_EXCESS" },
       { "sphere": 7, "locationId": "S7_CHESED_WHEEL_OF_BENEVOLENCE" },
-      { "sphere": 8, "locationId": "S8_BINAH_DOUBLE_SEAL" }
+      { "sphere": 8, "locationId": "S8_BINAH_THE_DOUBLE_SEAL" }
     ]
   }
 ]

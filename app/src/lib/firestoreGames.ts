@@ -40,7 +40,6 @@ import {
 } from "../game/locations";
 import {
   defaultTerrainDeckTypeForSphere,
-  drawCardsWithReshuffle,
   makePulseDeck,
   makeTerrainDeck,
 } from "./game/decks";
@@ -187,6 +186,89 @@ function mandatoryExchangeSeat(
   );
 }
 
+function locationHasEffect(locationId: string | null | undefined, effectType: string): boolean {
+  const location = getLocationById(locationId ?? null);
+  return Boolean(location?.effects?.some((effect) => effect?.type === effectType));
+}
+
+function drawCardsWithLocationRules(
+  deck: PulseCard[],
+  discard: PulseCard[],
+  count: number,
+  options?: {
+    primordialSeaActive?: boolean;
+    onPrimordialSeaReshuffle?: () => boolean | void;
+  }
+): PulseCard[] {
+  const drawn: PulseCard[] = [];
+  while (drawn.length < count) {
+    if (deck.length === 0) {
+      if (discard.length === 0) break;
+      if (options?.primordialSeaActive && options.onPrimordialSeaReshuffle) {
+        const keepDrawing = options.onPrimordialSeaReshuffle();
+        if (keepDrawing === false) break;
+      }
+      shuffleInPlace(discard);
+      deck.push(...discard);
+      discard.splice(0, discard.length);
+    }
+    const next = deck.shift();
+    if (!next) break;
+    drawn.push(next);
+  }
+  return drawn;
+}
+
+function pulseKey(chapter: number, step: number, terrainIndex: number, outcomeLogLength: number): string {
+  return `${chapter}:${step}:${terrainIndex}:${outcomeLogLength}`;
+}
+
+function pulseKeyFromData(data: Pick<GameDoc, "chapter" | "step" | "terrainIndex" | "outcomeLog">): string {
+  const chapter = Math.max(1, Number(data.chapter ?? 1));
+  const step = Math.max(1, Number(data.step ?? 1));
+  const terrainIndex = Math.max(0, Number(data.terrainIndex ?? 0));
+  const outcomeLogLength = Math.max(0, (data.outcomeLog ?? []).length);
+  return pulseKey(chapter, step, terrainIndex, outcomeLogLength);
+}
+
+function pulseFrictionAnchorForCurrentPulse(data: Pick<GameDoc, "golem" | "pulseFrictionAnchor" | "chapter" | "step" | "terrainIndex" | "outcomeLog">) {
+  const key = pulseKeyFromData(data);
+  const existing = data.pulseFrictionAnchor;
+  if (existing && existing.key === key) {
+    return { key, hp: Number(existing.hp ?? 0), heat: Number(existing.heat ?? 0) };
+  }
+  return {
+    key,
+    hp: data.golem?.hp ?? 5,
+    heat: data.golem?.heat ?? 0,
+  };
+}
+
+function isFrictionIgnoredForCurrentPulse(data: Pick<GameDoc, "frictionIgnoredPulseKey" | "chapter" | "step" | "terrainIndex" | "outcomeLog">) {
+  return data.frictionIgnoredPulseKey === pulseKeyFromData(data);
+}
+
+function applyFrictionDelta(
+  hp: number,
+  heat: number,
+  delta: number,
+  options?: { ignorePositive?: boolean }
+): { hp: number; heat: number } {
+  const amount = Number(delta) || 0;
+  if (amount > 0 && options?.ignorePositive) return { hp, heat };
+
+  let nextHp = hp;
+  let nextHeat = heat + amount;
+  if (nextHeat < 0) nextHeat = 0;
+
+  if (amount > 0 && nextHeat >= 3) {
+    nextHp = Math.max(0, nextHp - 1);
+    nextHeat = 0;
+  }
+
+  return { hp: nextHp, heat: nextHeat };
+}
+
 function normalizeCampaignVariant(data: Partial<Pick<GameDoc, "campaignVariant">>): CampaignVariant {
   const variant = data.campaignVariant;
   if (variant === "random_choice" || variant === "preset_path") return variant;
@@ -312,6 +394,8 @@ function buildPlayPhasePatchFromPicks(data: GameDoc, picks: Record<PlayerSlot, s
   const terrainDeckType = location.terrainDeckType ?? defaultTerrainDeckTypeForSphere(location.sphere ?? 1);
   const terrainCardsPerRun = Math.max(1, Number(location.terrainCardsPerRun ?? 5));
   const terrainDeck = makeTerrainDeck(terrainDeckType, terrainCardsPerRun);
+  const chapter = Math.max(1, Number(data.chapter ?? location.sphere ?? 1));
+  const initialPulseKey = pulseKey(chapter, 1, 0, 0);
   const preSeats = preSelectionSeats({ locationId: data.locationId, partPicks: picks, gameMode: data.gameMode });
   const exchangeFrom = mandatoryExchangeSeat({ locationId: data.locationId, partPicks: picks, gameMode: data.gameMode });
   const exchange = !preSeats.length && exchangeFrom ? { from: exchangeFrom, status: "awaiting_offer" as const } : null;
@@ -340,6 +424,8 @@ function buildPlayPhasePatchFromPicks(data: GameDoc, picks: Record<PlayerSlot, s
     played: {},
     chapterAbilityUsed: {},
     chapterGlobalUsed: {},
+    pulseFrictionAnchor: { key: initialPulseKey, hp: data.golem?.hp ?? 5, heat: data.golem?.heat ?? 0 },
+    frictionIgnoredPulseKey: null,
     pendingDiscard: deleteField(),
   };
 }
@@ -366,6 +452,8 @@ function buildTutorialPlayPatch(data: GameDoc, locationId: string) {
   const terrainDeckType = location.terrainDeckType ?? defaultTerrainDeckTypeForSphere(location.sphere ?? 1);
   const terrainCardsPerRun = Math.max(1, Number(location.terrainCardsPerRun ?? 5));
   const terrainDeck = makeTerrainDeck(terrainDeckType, terrainCardsPerRun);
+  const chapter = Math.max(1, Number(data.chapter ?? location.sphere ?? 1));
+  const initialPulseKey = pulseKey(chapter, 1, 0, 0);
 
   return {
     phase: "play" as const,
@@ -391,6 +479,8 @@ function buildTutorialPlayPatch(data: GameDoc, locationId: string) {
     played: {},
     chapterAbilityUsed: {},
     chapterGlobalUsed: {},
+    pulseFrictionAnchor: { key: initialPulseKey, hp: data.golem?.hp ?? 5, heat: data.golem?.heat ?? 0 },
+    frictionIgnoredPulseKey: null,
     pendingDiscard: deleteField(),
   };
 }
@@ -1337,6 +1427,322 @@ export async function playCard(gameId: string, actorUid: string, seat: PlayerSlo
   });
 }
 
+export async function playDiscardSigilCard(gameId: string, actorUid: string, seat: PlayerSlot, discardCardId: string) {
+  const gameRef = doc(db, "games", gameId);
+
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(gameRef);
+    if (!snap.exists()) throw new Error("Game not found.");
+    const data = snap.data() as GameDoc;
+
+    if (data.status !== "active") throw new Error("Game is not active.");
+    if (data.phase !== "play") throw new Error("Not in play phase.");
+    const pulsePhase = (data.pulsePhase ?? "selection") as any;
+    if (pulsePhase !== "selection" && pulsePhase !== "pre_selection") throw new Error("Not in selection phase.");
+    if (pulsePhase === "selection" && data.exchange) throw new Error("Resolve the Communion exchange first.");
+
+    const skipThisPulse = data.skipThisPulse ?? {};
+    if (skipThisPulse[seat]) throw new Error("This seat skips this Pulse.");
+
+    const seatUid = data.players?.[seat];
+    if (!seatUid) throw new Error("Seat is empty.");
+    const isBot = isBotUid(seatUid);
+    const isHost = data.createdBy === actorUid;
+    if (seatUid !== actorUid && !(isHost && isBot)) throw new Error("You can't play for that seat.");
+
+    const abilityKey = "play_from_discard_once";
+    if (!hasEffect(effectsForSeat(data, seat), abilityKey)) {
+      throw new Error("That seat cannot manifest from the discard pile.");
+    }
+    const chapterAbilityUsed = ensureChapterAbilityUsed(data);
+    const usedForSeat = { ...(chapterAbilityUsed[seat] ?? {}) };
+    if (usedForSeat[abilityKey]) throw new Error("This sigil was already used this Sphere.");
+
+    if (locationHasEffect(data.locationId, "remove_success_cards_from_game")) {
+      throw new Error("Discard manifestations are sealed in this location.");
+    }
+
+    const location = getLocationById(data.locationId ?? null);
+    const locationEffects = location?.effects ?? [];
+    const hasUnboundedSelection = locationEffects.some((e) => e?.type === "selection_unbounded_cards");
+    const hasConductorRule = locationEffects.some((e) => e?.type === "conductor_plays_three_cards");
+    const conductor = hasConductorRule ? conductorSeat(data) : null;
+    if (hasConductorRule && conductor && seat !== conductor) {
+      throw new Error("Only the Conductor can manifest in this location.");
+    }
+
+    const discard = [...(data.pulseDiscard ?? [])];
+    const discardIndex = discard.findIndex((card) => card.id === discardCardId);
+    if (discardIndex < 0) throw new Error("Card not found in discard pile.");
+    const [card] = discard.splice(discardIndex, 1);
+
+    const activeSeats = SLOTS.filter((s) => Boolean(data.players?.[s]) && !skipThisPulse[s]);
+    const played = { ...(data.played ?? {}) } as any;
+    const heraldSeat =
+      pulsePhase === "selection"
+        ? activeSeats.find((s) => hasEffect(effectsForSeat(data, s), "must_play_first_faceup")) ?? null
+        : null;
+    if (heraldSeat && seat !== heraldSeat && !played[heraldSeat]?.card) {
+      throw new Error("The Herald must manifest first.");
+    }
+    if (played[seat]?.card) throw new Error("That seat already manifested this Pulse.");
+
+    played[seat] = {
+      card,
+      additionalCards: [],
+      bySeat: seat,
+      at: serverTimestamp(),
+      revealedDuringSelection: true,
+      disableResonanceRefill: true,
+    };
+    usedForSeat[abilityKey] = true;
+    chapterAbilityUsed[seat] = usedForSeat;
+
+    let full = activeSeats.every((s) => Boolean(played[s]?.card));
+    if (hasConductorRule && conductor && activeSeats.includes(conductor)) {
+      const conductorEntry = played[conductor];
+      const count = manifestedCount(conductorEntry);
+      const remaining = (data.hands?.[conductor] ?? []).length;
+      const needed = Math.min(3, count + remaining);
+      full = full && count >= needed;
+    }
+    const preSeats = preSelectionSeats({ locationId: data.locationId, partPicks: data.partPicks, gameMode: data.gameMode });
+    const preDone = preSeats.every((s) => skipThisPulse[s] || Boolean(played[s]));
+
+    if (pulsePhase === "pre_selection" && preSeats.length && !preSeats.includes(seat)) {
+      throw new Error("That seat can't play before the terrain is revealed.");
+    }
+
+    const manualReveal = pulsePhase === "selection" && (hasUnboundedSelection || hasConductorRule);
+    const nextPulsePhase = manualReveal
+      ? preSeats.length && !preDone
+        ? "pre_selection"
+        : "selection"
+      : full
+        ? "actions"
+        : preSeats.length && !preDone
+          ? "pre_selection"
+          : "selection";
+    let exchange = (data.exchange ?? null) as any;
+    if (pulsePhase === "pre_selection" && nextPulsePhase !== "pre_selection" && !exchange) {
+      const exchangeFrom = mandatoryExchangeSeat({
+        locationId: data.locationId,
+        partPicks: data.partPicks,
+        gameMode: data.gameMode,
+      });
+      if (exchangeFrom) exchange = { from: exchangeFrom, status: "awaiting_offer" as const };
+    }
+
+    tx.update(gameRef, {
+      pulseDiscard: discard,
+      played,
+      chapterAbilityUsed,
+      pulsePhase: nextPulsePhase,
+      exchange,
+      updatedAt: serverTimestamp(),
+    });
+  });
+}
+
+export async function useBlackSeaSigilDraw(gameId: string, actorUid: string, seat: PlayerSlot, cardIds: string[]) {
+  const gameRef = doc(db, "games", gameId);
+
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(gameRef);
+    if (!snap.exists()) throw new Error("Game not found.");
+    const data = snap.data() as GameDoc;
+
+    if (data.status !== "active") throw new Error("Game is not active.");
+    if (data.phase !== "play") throw new Error("Not in play phase.");
+    const pulsePhase = data.pulsePhase ?? "selection";
+    if (pulsePhase !== "selection" && pulsePhase !== "pre_selection") {
+      throw new Error("This sigil can be used only during selection.");
+    }
+    if (data.exchange) throw new Error("Resolve the Communion exchange first.");
+    if ((data.skipThisPulse ?? {})[seat]) throw new Error("This seat skips this Pulse.");
+
+    const seatUid = data.players?.[seat];
+    if (!seatUid) throw new Error("Seat is empty.");
+    const isBot = isBotUid(seatUid);
+    const isHost = data.createdBy === actorUid;
+    if (seatUid !== actorUid && !(isHost && isBot)) throw new Error("You can't act for that seat.");
+
+    if (!hasEffect(effectsForSeat(data, seat), "discard_x_draw_x_for_friction")) {
+      throw new Error("That seat cannot invoke this sigil.");
+    }
+
+    if (data.played?.[seat]?.card) {
+      throw new Error("Use this sigil before manifesting.");
+    }
+
+    const uniqueIds = Array.from(new Set(cardIds.filter(Boolean)));
+    if (!uniqueIds.length) throw new Error("Select at least one card.");
+
+    const hands = { ...(data.hands ?? {}) } as SeatHands;
+    const hand = [...(hands[seat] ?? [])];
+    const selectedSet = new Set(uniqueIds);
+    if (uniqueIds.some((id) => !hand.some((card) => card.id === id))) {
+      throw new Error("One or more selected cards are no longer in hand.");
+    }
+
+    const kept: PulseCard[] = [];
+    const discardedNow: PulseCard[] = [];
+    for (const card of hand) {
+      if (selectedSet.has(card.id)) discardedNow.push(card);
+      else kept.push(card);
+    }
+
+    const deck = [...(data.pulseDeck ?? [])];
+    const discard = [...(data.pulseDiscard ?? [])];
+    discard.push(...discardedNow);
+
+    const primordialSeaActive = locationHasEffect(data.locationId, "remove_success_cards_from_game");
+    let hp = data.golem?.hp ?? 5;
+    let heat = data.golem?.heat ?? 0;
+    const drawn = drawCardsWithLocationRules(deck, discard, discardedNow.length, {
+      primordialSeaActive,
+      onPrimordialSeaReshuffle: () => {
+        hp = Math.max(0, hp - 2);
+        return hp > 0;
+      },
+    });
+    kept.push(...drawn);
+    hands[seat] = kept;
+
+    const ignoreFriction = isFrictionIgnoredForCurrentPulse(data);
+    const nextFriction = applyFrictionDelta(hp, heat, 1, { ignorePositive: ignoreFriction });
+    hp = nextFriction.hp;
+    heat = nextFriction.heat;
+
+    tx.update(gameRef, {
+      hands,
+      pulseDeck: deck,
+      pulseDiscard: discard,
+      lastDiscarded: discardedNow,
+      golem: { hp, heat },
+      ...(hp <= 0
+        ? {
+            status: "completed" as GameStatus,
+            endedReason: "loss" as const,
+            completedAt: serverTimestamp(),
+          }
+        : {}),
+      updatedAt: serverTimestamp(),
+    });
+  });
+}
+
+export async function useShatteredClayShift(
+  gameId: string,
+  actorUid: string,
+  seat: PlayerSlot,
+  cardAId: string,
+  cardBId: string,
+  direction: 1 | -1
+) {
+  const gameRef = doc(db, "games", gameId);
+
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(gameRef);
+    if (!snap.exists()) throw new Error("Game not found.");
+    const data = snap.data() as GameDoc;
+
+    if (data.status !== "active") throw new Error("Game is not active.");
+    if (data.phase !== "play") throw new Error("Not in play phase.");
+    if ((data.pulsePhase ?? "selection") !== "actions") throw new Error("This sigil can be used only after reveal.");
+
+    const seatUid = data.players?.[seat];
+    if (!seatUid) throw new Error("Seat is empty.");
+    const isBot = isBotUid(seatUid);
+    const isHost = data.createdBy === actorUid;
+    if (seatUid !== actorUid && !(isHost && isBot)) throw new Error("You can't act for that seat.");
+
+    const sigilEffect = effectsForSeat(data, seat).find((effect) => effect?.type === "discard_to_shift_value") as any;
+    if (!sigilEffect) throw new Error("That seat cannot invoke this sigil.");
+    const amount = Math.max(1, Number(sigilEffect.amount) || 0);
+
+    const played = { ...(data.played ?? {}) } as any;
+    const entry = played[seat];
+    if (!entry?.card) throw new Error("Seat has not manifested a card.");
+    if (typeof entry.postRevealValueDelta === "number") throw new Error("This sigil was already used this Pulse.");
+
+    const hands = { ...(data.hands ?? {}) } as SeatHands;
+    const hand = [...(hands[seat] ?? [])];
+    if (!cardAId || !cardBId || cardAId === cardBId) {
+      throw new Error("Select two different cards.");
+    }
+
+    const cardA = hand.find((card) => card.id === cardAId);
+    const cardB = hand.find((card) => card.id === cardBId);
+    if (!cardA || !cardB) throw new Error("Selected cards are no longer in hand.");
+    if (cardA.suit !== cardB.suit) throw new Error("Selected cards must share the same suit.");
+
+    const selected = new Set([cardAId, cardBId]);
+    const kept = hand.filter((card) => !selected.has(card.id));
+    const discardedNow = hand.filter((card) => selected.has(card.id));
+    hands[seat] = kept;
+
+    const discard = [...(data.pulseDiscard ?? []), ...discardedNow];
+    const shift = direction < 0 ? -amount : amount;
+    played[seat] = { ...entry, postRevealValueDelta: shift };
+
+    tx.update(gameRef, {
+      hands,
+      played,
+      pulseDiscard: discard,
+      lastDiscarded: discardedNow,
+      updatedAt: serverTimestamp(),
+    });
+  });
+}
+
+export async function setResonanceGiftSeat(
+  gameId: string,
+  actorUid: string,
+  seat: PlayerSlot,
+  giftSeat: PlayerSlot | null
+) {
+  const gameRef = doc(db, "games", gameId);
+
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(gameRef);
+    if (!snap.exists()) throw new Error("Game not found.");
+    const data = snap.data() as GameDoc;
+
+    if (data.status !== "active") throw new Error("Game is not active.");
+    if (data.phase !== "play") throw new Error("Not in play phase.");
+    if ((data.pulsePhase ?? "selection") !== "actions") throw new Error("This sigil can be configured only after reveal.");
+
+    const seatUid = data.players?.[seat];
+    if (!seatUid) throw new Error("Seat is empty.");
+    const isBot = isBotUid(seatUid);
+    const isHost = data.createdBy === actorUid;
+    if (seatUid !== actorUid && !(isHost && isBot)) throw new Error("You can't act for that seat.");
+
+    if (!hasEffect(effectsForSeat(data, seat), "resonance_grants_ally_refill")) {
+      throw new Error("That seat does not have this sigil.");
+    }
+
+    const played = { ...(data.played ?? {}) } as any;
+    const entry = played[seat];
+    if (!entry?.card) throw new Error("Seat has not manifested a card.");
+
+    if (giftSeat) {
+      if (giftSeat === seat) throw new Error("Choose another seat.");
+      if (!data.players?.[giftSeat]) throw new Error("Target seat is empty.");
+      played[seat] = { ...entry, resonanceGiftSeat: giftSeat };
+    } else {
+      const { resonanceGiftSeat: _unused, ...rest } = entry;
+      played[seat] = rest;
+    }
+
+    tx.update(gameRef, {
+      played,
+      updatedAt: serverTimestamp(),
+    });
+  });
+}
+
 export async function confirmSelection(gameId: string, actorUid: string) {
   const gameRef = doc(db, "games", gameId);
 
@@ -1619,13 +2025,15 @@ export async function setPlayedCardValueChoice(
     const terrainDeck = data.terrainDeck ?? [];
     const terrain = terrainDeck[data.terrainIndex ?? 0] ?? null;
 
-    const options = effectiveValueOptionsForCard(
+    const optionsRaw = effectiveValueOptionsForCard(
       { locationId: data.locationId, partPicks: data.partPicks, seatSigils: data.seatSigils, gameMode: data.gameMode },
       seat,
       card,
       target === "primary" ? entry.valueOverride : undefined,
       terrain?.suit ?? null
     );
+    const postRevealDelta = target === "primary" ? Number(entry.postRevealValueDelta ?? 0) : 0;
+    const options = postRevealDelta ? optionsRaw.map((option) => option + postRevealDelta) : optionsRaw;
     if (options.length <= 1) throw new Error("This card has a fixed value.");
 
     const field = target === "primary" ? "valueChoice" : "extraValueChoice";
@@ -1639,6 +2047,130 @@ export async function setPlayedCardValueChoice(
 
     tx.update(gameRef, {
       played,
+      updatedAt: serverTimestamp(),
+    });
+  });
+}
+
+export async function useBalancingScale(gameId: string, actorUid: string, seat: PlayerSlot, reduceBy: 1 | 2) {
+  const gameRef = doc(db, "games", gameId);
+
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(gameRef);
+    if (!snap.exists()) throw new Error("Game not found.");
+    const data = snap.data() as GameDoc;
+
+    if (data.status !== "active") throw new Error("Game is not active.");
+    if (data.phase !== "play") throw new Error("Not in play phase.");
+    if ((data.pulsePhase ?? "selection") !== "actions") throw new Error("Only after reveal.");
+
+    const seatUid = data.players?.[seat];
+    if (!seatUid) throw new Error("Seat is empty.");
+    const isBot = isBotUid(seatUid);
+    const isHost = data.createdBy === actorUid;
+    if (seatUid !== actorUid && !(isHost && isBot)) throw new Error("You can't act for that seat.");
+
+    const scaleEffect = effectsForSeat(data, seat).find((effect) => effect?.type === "post_reveal_reduce_if_top") as
+      | { amount?: [number, number] }
+      | undefined;
+    if (!scaleEffect) throw new Error("That seat does not have the Balancing Scale.");
+
+    const allowedRaw = Array.isArray(scaleEffect.amount) ? scaleEffect.amount : [1, 2];
+    const allowed = new Set(allowedRaw.map((value) => Math.max(1, Number(value) || 0)));
+    if (!allowed.has(reduceBy)) throw new Error("Invalid reduction value.");
+
+    const played = { ...(data.played ?? {}) } as any;
+    const entry = played[seat];
+    if (!entry?.card) throw new Error("Seat has not played a card.");
+    if (typeof entry.postRevealValueDelta === "number" && entry.postRevealValueDelta < 0) {
+      throw new Error("Balancing Scale already used this Pulse.");
+    }
+
+    const skipThisPulse = data.skipThisPulse ?? {};
+    const terrainDeck = data.terrainDeck ?? [];
+    const terrain = terrainDeck[data.terrainIndex ?? 0] ?? null;
+    if (!terrain) throw new Error("No terrain card.");
+
+    const activeSeats = SLOTS.filter((s) => Boolean(data.players?.[s]) && !skipThisPulse[s] && Boolean(played[s]?.card));
+    if (!activeSeats.includes(seat)) throw new Error("Seat is not active this Pulse.");
+
+    const primaryValueForSeat = (targetSeat: PlayerSlot): number => {
+      const targetEntry = played[targetSeat];
+      const targetCard = targetEntry?.card as PulseCard | undefined;
+      if (!targetCard) return Number.NEGATIVE_INFINITY;
+      const optionsRaw = effectiveValueOptionsForCard(
+        { locationId: data.locationId, partPicks: data.partPicks, seatSigils: data.seatSigils, gameMode: data.gameMode },
+        targetSeat,
+        targetCard,
+        targetEntry?.valueOverride,
+        terrain.suit
+      );
+      const postDelta = Number(targetEntry?.postRevealValueDelta ?? 0);
+      const options = postDelta ? optionsRaw.map((value) => value + postDelta) : optionsRaw;
+      const explicit = typeof targetEntry?.valueChoice === "number" && options.includes(targetEntry.valueChoice)
+        ? targetEntry.valueChoice
+        : null;
+      return explicit ?? options[0] ?? Number.NEGATIVE_INFINITY;
+    };
+
+    const values = activeSeats.map((targetSeat) => primaryValueForSeat(targetSeat));
+    const highest = Math.max(...values);
+    const myValue = primaryValueForSeat(seat);
+    if (!Number.isFinite(myValue) || myValue < highest) {
+      throw new Error("Balancing Scale can be used only when your manifested value is tied for highest.");
+    }
+
+    const currentDelta = Number(entry.postRevealValueDelta ?? 0);
+    const { valueChoice: _oldChoice, ...entryRest } = entry;
+    played[seat] = { ...entryRest, postRevealValueDelta: currentDelta - reduceBy };
+
+    tx.update(gameRef, {
+      played,
+      updatedAt: serverTimestamp(),
+    });
+  });
+}
+
+export async function useTemperedCrucible(gameId: string, actorUid: string, seat: PlayerSlot) {
+  const gameRef = doc(db, "games", gameId);
+
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(gameRef);
+    if (!snap.exists()) throw new Error("Game not found.");
+    const data = snap.data() as GameDoc;
+
+    if (data.status !== "active") throw new Error("Game is not active.");
+    if (data.phase !== "play") throw new Error("Not in play phase.");
+    const pulsePhase = data.pulsePhase ?? "selection";
+    if (!["pre_selection", "selection", "actions", "discard_selection"].includes(pulsePhase)) {
+      throw new Error("This sigil can be activated only during a pulse.");
+    }
+
+    const seatUid = data.players?.[seat];
+    if (!seatUid) throw new Error("Seat is empty.");
+    const isBot = isBotUid(seatUid);
+    const isHost = data.createdBy === actorUid;
+    if (seatUid !== actorUid && !(isHost && isBot)) throw new Error("You can't act for that seat.");
+
+    const abilityKey = "once_per_chapter_ignore_friction_pulse";
+    if (!hasEffect(effectsForSeat(data, seat), abilityKey)) {
+      throw new Error("That seat does not have the Tempered Crucible.");
+    }
+
+    const chapterAbilityUsed = ensureChapterAbilityUsed(data);
+    const usedForSeat = { ...(chapterAbilityUsed[seat] ?? {}) };
+    if (usedForSeat[abilityKey]) throw new Error("This sigil was already used this Sphere.");
+
+    const anchor = pulseFrictionAnchorForCurrentPulse(data);
+    const currentKey = pulseKeyFromData(data);
+    usedForSeat[abilityKey] = true;
+    chapterAbilityUsed[seat] = usedForSeat;
+
+    tx.update(gameRef, {
+      chapterAbilityUsed,
+      pulseFrictionAnchor: anchor,
+      frictionIgnoredPulseKey: currentKey,
+      golem: { hp: anchor.hp, heat: anchor.heat },
       updatedAt: serverTimestamp(),
     });
   });
@@ -1723,7 +2255,13 @@ export async function useLensOfTiphareth(gameId: string, actorUid: string, seat:
 
     const handCard = hand[idx]!;
     hand[idx] = entry.card;
-    const { valueChoice: _oldChoice, ...entryRest } = entry;
+    const {
+      valueChoice: _oldChoice,
+      valueOverride: _oldOverride,
+      postRevealValueDelta: _oldPostRevealDelta,
+      disableResonanceRefill: _oldDisableResonanceRefill,
+      ...entryRest
+    } = entry;
     played[seat] = { ...entryRest, card: handCard };
     hands[seat] = hand;
     skipNextPulse[seat] = true;
@@ -1767,11 +2305,10 @@ export async function useHarmonicAmplifier(gameId: string, actorUid: string, sea
 
     let heat = data.golem?.heat ?? 0;
     let hp = data.golem?.hp ?? 5;
-    heat += 1;
-    if (heat >= 3) {
-      hp = Math.max(0, hp - 1);
-      heat = 0;
-    }
+    const ignoreFriction = isFrictionIgnoredForCurrentPulse(data);
+    const nextFriction = applyFrictionDelta(hp, heat, 1, { ignorePositive: ignoreFriction });
+    hp = nextFriction.hp;
+    heat = nextFriction.heat;
 
     played[seat] = { ...entry, totalMultiplier: 2 };
 
@@ -1822,7 +2359,7 @@ export async function useFuse(gameId: string, actorUid: string, seat: PlayerSlot
     if (!entry?.card) throw new Error("Target seat has not played a card.");
     if (entry.valueOverride === 0) throw new Error("That card is already reduced to 0.");
 
-    const { valueChoice: _oldChoice, ...entryRest } = entry;
+    const { valueChoice: _oldChoice, postRevealValueDelta: _oldPostRevealDelta, ...entryRest } = entry;
     played[targetSeat] = { ...entryRest, valueOverride: 0 };
     usedForSeat[abilityKey] = true;
     chapterAbilityUsed[seat] = usedForSeat;
@@ -1862,7 +2399,13 @@ export async function swapWithReservoir(gameId: string, actorUid: string, seat: 
     if (!entry?.card) throw new Error("Seat has not played a card.");
 
     const nextReservoir = entry.card as PulseCard;
-    const { valueOverride: _oldOverride, valueChoice: _oldChoice, ...rest } = entry;
+    const {
+      valueOverride: _oldOverride,
+      valueChoice: _oldChoice,
+      postRevealValueDelta: _oldPostRevealDelta,
+      disableResonanceRefill: _oldDisableResonanceRefill,
+      ...rest
+    } = entry;
     played[seat] = { ...rest, card: reservoir };
 
     const location = getLocationById(data.locationId ?? null);
@@ -1879,11 +2422,10 @@ export async function swapWithReservoir(gameId: string, actorUid: string, seat: 
 
     let heat = data.golem?.heat ?? 0;
     let hp = data.golem?.hp ?? 5;
-    heat += cost;
-    if (heat >= 3) {
-      hp = Math.max(0, hp - 1);
-      heat = 0;
-    }
+    const ignoreFriction = isFrictionIgnoredForCurrentPulse(data);
+    const nextFriction = applyFrictionDelta(hp, heat, cost, { ignorePositive: ignoreFriction });
+    hp = nextFriction.hp;
+    heat = nextFriction.heat;
 
     tx.update(gameRef, {
       [reservoirKey]: nextReservoir,
@@ -2118,13 +2660,17 @@ export async function endActions(gameId: string, actorUid: string) {
         const isPrimary = cardIndex === 0;
         const isExtra = cardIndex === 1 && firstAdditional && manifestedCard.id === firstAdditional.id;
         const valueOverride = isPrimary ? entry.valueOverride : undefined;
-        const valueOptions = effectiveValueOptionsForCard(
+        const valueOptionsRaw = effectiveValueOptionsForCard(
           { locationId: data.locationId, partPicks: data.partPicks, seatSigils: data.seatSigils, gameMode: data.gameMode },
           seat,
           manifestedCard,
           valueOverride,
           terrain.suit
         );
+        const postRevealValueDelta = isPrimary ? Number(entry.postRevealValueDelta ?? 0) : 0;
+        const valueOptions = postRevealValueDelta
+          ? valueOptionsRaw.map((value) => value + postRevealValueDelta)
+          : valueOptionsRaw;
         const explicitChoice =
           isPrimary && typeof entry.valueChoice === "number" && valueOptions.includes(entry.valueChoice)
             ? entry.valueChoice
@@ -2199,6 +2745,12 @@ export async function endActions(gameId: string, actorUid: string) {
 
     let hp = data.golem?.hp ?? 5;
     let heat = data.golem?.heat ?? 0;
+    const frictionIgnoredThisPulse = isFrictionIgnoredForCurrentPulse(data);
+    const applyPulseFriction = (amount: number) => {
+      const next = applyFrictionDelta(hp, heat, amount, { ignorePositive: frictionIgnoredThisPulse });
+      hp = next.hp;
+      heat = next.heat;
+    };
     if (result === "overshoot") {
       const shieldEffectKey = "once_per_chapter_prevent_first_overshoot_damage";
       const shieldSeat = SLOTS.find((seat) => {
@@ -2218,7 +2770,7 @@ export async function endActions(gameId: string, actorUid: string) {
 
         if (stoneShieldSeat) {
           chapterAbilityUsed[stoneShieldSeat] = { ...(chapterAbilityUsed[stoneShieldSeat] ?? {}), [stoneShieldKey]: true };
-          heat += 1;
+          applyPulseFriction(1);
         } else {
           let damage = 1;
           const highRiskSeats = activeSeats.filter((seat) =>
@@ -2243,6 +2795,8 @@ export async function endActions(gameId: string, actorUid: string) {
     const deck = [...(data.pulseDeck ?? [])];
     const discard = [...(data.pulseDiscard ?? [])];
     const hands = { ...(data.hands ?? {}) } as SeatHands;
+    const removeSuccessCardsFromGame =
+      result === "success" && locationEffects.some((effect) => effect?.type === "remove_success_cards_from_game");
 
     // Discard played cards (public v0).
     const discardedThisPulse: PulseCard[] = [];
@@ -2250,6 +2804,7 @@ export async function endActions(gameId: string, actorUid: string) {
       const entry = played[seat]!;
       const manifested = manifestedCards(entry);
       for (const card of manifested) {
+        if (removeSuccessCardsFromGame) continue;
         discard.push(card);
         discardedThisPulse.push(card);
       }
@@ -2264,13 +2819,13 @@ export async function endActions(gameId: string, actorUid: string) {
     // Location rule: add friction if nobody matched the terrain suit.
     const frictionIfNoMatch = locationEffects.find((e) => e?.type === "friction_if_no_terrain_match");
     if (frictionIfNoMatch && !anyMatchedTerrain) {
-      heat += Number((frictionIfNoMatch as any).amount) || 0;
+      applyPulseFriction(Number((frictionIfNoMatch as any).amount) || 0);
     }
 
     const parityEffect = locationEffects.find((e) => e?.type === "friction_by_total_parity") as any;
     if (parityEffect) {
-      if (total % 2 === 0) heat += Number(parityEffect.evenAmount) || 0;
-      else heat += Number(parityEffect.oddAmount) || 0;
+      if (total % 2 === 0) applyPulseFriction(Number(parityEffect.evenAmount) || 0);
+      else applyPulseFriction(Number(parityEffect.oddAmount) || 0);
     }
 
     // Faculty rule: friction delta when playing a specific suit.
@@ -2281,7 +2836,7 @@ export async function endActions(gameId: string, actorUid: string) {
         const suit = e?.suit as any;
         if (!suit) continue;
         if (seatPlayedSuit(entry, suit)) {
-          heat += Number(e.amount) || 0;
+          applyPulseFriction(Number(e.amount) || 0);
         }
       }
     }
@@ -2297,7 +2852,7 @@ export async function endActions(gameId: string, actorUid: string) {
           if (seat === herald) continue;
           const suits = manifestedCards(played[seat]).map((card) => card.suit);
           const follows = suits.includes("prism") || suits.includes(heraldSuit);
-          if (!follows) heat += penalty;
+          if (!follows) applyPulseFriction(penalty);
         }
       }
     }
@@ -2311,44 +2866,67 @@ export async function endActions(gameId: string, actorUid: string) {
         const suits = manifestedCards(entry).map((card) => card.suit);
         return count + suits.filter((s) => s === "ether" || s === "prism").length;
       }, 0);
-      if (etherOrPrismCount < threshold) heat += amount;
+      if (etherOrPrismCount < threshold) applyPulseFriction(amount);
     }
 
     const dualityEffect = activeSeats.some((seat) => hasEffect(effectsForSeat(data, seat), "median_heal_boundary_friction"));
     if (dualityEffect) {
       const median = Math.floor((terrain.min + terrain.max) / 2);
       if (total === median) heat = 0;
-      if (total === terrain.min || total === terrain.max) heat += 1;
+      if (total === terrain.min || total === terrain.max) applyPulseFriction(1);
     }
 
-    heat = Math.max(0, heat);
-    if (heat >= 3) {
-      hp = Math.max(0, hp - 1);
-      heat = 0;
+    if (result === "success") {
+      for (const seat of SLOTS) {
+        const recoverEffect = effectsForSeat(data, seat).find((effect) => effect?.type === "success_recover_from_discard") as
+          | { count?: number }
+          | undefined;
+        if (!recoverEffect) continue;
+        const recoverCount = Math.max(1, Number(recoverEffect.count) || 0);
+        if (recoverCount <= 0 || discard.length === 0) continue;
+
+        const hand = [...(hands[seat] ?? [])];
+        const recovered: PulseCard[] = [];
+        for (let i = 0; i < recoverCount; i += 1) {
+          const card = discard.pop();
+          if (!card) break;
+          recovered.push(card);
+          const idx = discardedThisPulse.findIndex((discarded) => discarded.id === card.id);
+          if (idx >= 0) discardedThisPulse.splice(idx, 1);
+        }
+        if (!recovered.length) continue;
+        hand.push(...recovered);
+        hands[seat] = hand;
+      }
     }
 
-	    const baseHandCapacity = data.baseHandCapacity ?? 5;
-	    const refill = (seat: PlayerSlot) => {
-	      const cap = handCapacityForSeat(
-	        {
+    const baseHandCapacity = data.baseHandCapacity ?? 5;
+    const primordialSeaActive = locationEffects.some((effect) => effect?.type === "remove_success_cards_from_game");
+    const refill = (seat: PlayerSlot) => {
+      const cap = handCapacityForSeat(
+        {
             baseHandCapacity,
             partPicks: data.partPicks,
             locationId: data.locationId,
             seatSigils: data.seatSigils,
             gameMode: data.gameMode,
           },
-	        seat
-	      );
+        seat
+      );
       const h = [...(hands[seat] ?? [])];
       if (h.length >= cap) {
         hands[seat] = h;
         return;
       }
 
-      const res = drawCardsWithReshuffle(deck, discard, cap - h.length);
-      deck.splice(0, deck.length, ...res.deck);
-      discard.splice(0, discard.length, ...res.discard);
-      h.push(...res.drawn);
+      const drawn = drawCardsWithLocationRules(deck, discard, cap - h.length, {
+        primordialSeaActive,
+        onPrimordialSeaReshuffle: () => {
+          hp = Math.max(0, hp - 2);
+          return hp > 0;
+        },
+      });
+      h.push(...drawn);
       while (h.length > cap) h.pop();
       hands[seat] = h;
       return;
@@ -2360,6 +2938,7 @@ export async function endActions(gameId: string, actorUid: string) {
       if (hasEffect(effectsForSeat(data, seat), "disable_match_refill_on_failure")) return false;
       const entry = played[seat];
       if (!entry?.card) return false;
+      if (entry.disableResonanceRefill) return false;
       const suits = manifestedCards(entry).map((card) => card.suit);
       if (entry.resonanceSuitOverride) suits.push(entry.resonanceSuitOverride);
       return suits.some((s) => s !== "prism" && s === terrain.suit);
@@ -2380,6 +2959,13 @@ export async function endActions(gameId: string, actorUid: string) {
 
     const acidDiscardRequests: Partial<Record<PlayerSlot, PendingDiscardSeatRequest>> = {};
     let needsAcidPrompt = false;
+    const resonanceGiftConsumed = new Set<PlayerSlot>();
+    const pickResonanceGiftTarget = (seat: PlayerSlot): PlayerSlot | null => {
+      const entry = played[seat] as any;
+      const preferred = (entry?.resonanceGiftSeat ?? null) as PlayerSlot | null;
+      if (preferred && preferred !== seat && data.players?.[preferred]) return preferred;
+      return SLOTS.find((other) => other !== seat && Boolean(data.players?.[other])) ?? null;
+    };
     const anchorLocked = (seat: PlayerSlot) => Boolean(chapterAbilityUsed?.[seat]?.[anchorEffectKey]);
     const refillIfAllowed = (seat: PlayerSlot, source: "success" | "resonance" | "other") => {
       if ((source === "success" || source === "resonance") && anchorLocked(seat)) return;
@@ -2429,6 +3015,16 @@ export async function endActions(gameId: string, actorUid: string) {
       }
 
       refill(seat);
+
+      if (
+        isResonanceRefill &&
+        hasEffect(effectsForSeat(data, seat), "resonance_grants_ally_refill") &&
+        !resonanceGiftConsumed.has(seat)
+      ) {
+        resonanceGiftConsumed.add(seat);
+        const target = pickResonanceGiftTarget(seat);
+        if (target) refillIfAllowed(target, "other");
+      }
     };
 
     const successHighestResonance = locationEffects.some((e) => e?.type === "success_refill_highest_else_resonance");
@@ -2595,6 +3191,8 @@ export async function endActions(gameId: string, actorUid: string) {
       nextSkipThisPulse = conductorNext.skipThisPulse;
     }
     const nextConductorPasses = conductorNext.conductorPasses;
+    const nextTerrainIndexForPulse = advance ? (nextIndex >= terrainDeck.length ? 0 : nextIndex) : terrainIndex;
+    const nextPulseAnchorKey = pulseKey(chapter, nextStep, nextTerrainIndexForPulse, outcomeLog.length);
 
     const basePatch: Record<string, any> = {
       golem: { hp, heat },
@@ -2603,7 +3201,7 @@ export async function endActions(gameId: string, actorUid: string) {
       lastDiscarded: discardedThisPulse,
       hands: conductorNext.hands,
       played: {},
-      terrainIndex: advance ? (nextIndex >= terrainDeck.length ? 0 : nextIndex) : terrainIndex,
+      terrainIndex: nextTerrainIndexForPulse,
       step: nextStep,
       pulsePhase: nextPulsePhase,
       exchange: nextExchange,
@@ -2611,6 +3209,8 @@ export async function endActions(gameId: string, actorUid: string) {
       skipNextPulse: {},
       conductorPasses: nextConductorPasses,
       partPicks: partPicksForNext,
+      pulseFrictionAnchor: { key: nextPulseAnchorKey, hp, heat },
+      frictionIgnoredPulseKey: null,
       lastOutcome: {
         result,
         total,
@@ -2630,6 +3230,8 @@ export async function endActions(gameId: string, actorUid: string) {
       basePatch.endedReason = "loss" as const;
       basePatch.completedAt = serverTimestamp();
       basePatch.exchange = null;
+      basePatch.pulseFrictionAnchor = null;
+      basePatch.frictionIgnoredPulseKey = null;
       tx.update(gameRef, basePatch);
       return;
     }
@@ -2641,6 +3243,8 @@ export async function endActions(gameId: string, actorUid: string) {
         endedReason: "win" as const,
         completedAt: serverTimestamp(),
         exchange: null,
+        pulseFrictionAnchor: null,
+        frictionIgnoredPulseKey: null,
         updatedAt: serverTimestamp(),
       });
       return;
@@ -2679,6 +3283,8 @@ export async function endActions(gameId: string, actorUid: string) {
         sigilDraftPool: deleteField(),
         sigilDraftAssignments: deleteField(),
         sigilDraftMaxPicks: deleteField(),
+        pulseFrictionAnchor: null,
+        frictionIgnoredPulseKey: null,
         updatedAt: serverTimestamp(),
       };
 
@@ -2690,6 +3296,8 @@ export async function endActions(gameId: string, actorUid: string) {
             endedReason: "win" as const,
             completedAt: serverTimestamp(),
             exchange: null,
+            pulseFrictionAnchor: null,
+            frictionIgnoredPulseKey: null,
             updatedAt: serverTimestamp(),
           });
           return;

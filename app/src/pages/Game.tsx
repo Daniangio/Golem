@@ -13,6 +13,7 @@ import {
   joinGame,
   leaveGame,
   offerExchangeCard,
+  playDiscardSigilCard,
   playerCount,
   playCard,
   playAuxBatteryCard,
@@ -21,6 +22,7 @@ import {
   revokeInvite,
   removeBot,
   setLocationVote,
+  setResonanceGiftSeat,
   setSigilDraftAssignment,
   setPlayedCardValueChoice,
   togglePendingDiscardSelection,
@@ -29,10 +31,14 @@ import {
   startGame,
   subscribeGame,
   swapWithReservoir,
+  useBalancingScale,
   useHarmonicAmplifier,
+  useBlackSeaSigilDraw,
   useFuse,
   useLensOfTiphareth,
+  useShatteredClayShift,
   useSteamSigilResonance,
+  useTemperedCrucible,
   type GameSummary,
 } from "../lib/firestoreGames";
 import { useAuthUser } from "../lib/useAuth";
@@ -93,10 +99,13 @@ export default function Game() {
   const [inviteUid, setInviteUid] = useState("");
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [showDiscardModal, setShowDiscardModal] = useState(false);
+  const [discardModalMode, setDiscardModalMode] = useState<"inspect" | "play_from_discard">("inspect");
   const [showLogModal, setShowLogModal] = useState(false);
   const [showTerrainModal, setShowTerrainModal] = useState(false);
   const [showFacultyModal, setShowFacultyModal] = useState(false);
   const [showLocationInfoModal, setShowLocationInfoModal] = useState(false);
+  const [handActionMode, setHandActionMode] = useState<"black_sea" | "shattered_clay" | null>(null);
+  const [handActionSelectedIds, setHandActionSelectedIds] = useState<string[]>([]);
   const [locationCarouselIndex, setLocationCarouselIndex] = useState(0);
   const [resolvingLocationId, setResolvingLocationId] = useState<string | null>(null);
   const resolvingVotesKeyRef = useRef<string | null>(null);
@@ -149,6 +158,8 @@ export default function Game() {
   useEffect(() => {
     // Reset selection when switching seats.
     setSelectedCardId(null);
+    setHandActionMode(null);
+    setHandActionSelectedIds([]);
     setShowFacultyModal(false);
     setShowLocationInfoModal(false);
   }, [activeSeat]);
@@ -394,6 +405,30 @@ export default function Game() {
     setResolvingLocationId(winnerId);
   }, [game, gameId, resolvingLocationId]);
 
+  useEffect(() => {
+    if (!handActionMode) return;
+    if (!game || game.phase !== "play") {
+      setHandActionMode(null);
+      setHandActionSelectedIds([]);
+      return;
+    }
+    const pulsePhaseNow = game.pulsePhase ?? "selection";
+    if (handActionMode === "black_sea" && pulsePhaseNow !== "selection" && pulsePhaseNow !== "pre_selection") {
+      setHandActionMode(null);
+      setHandActionSelectedIds([]);
+    }
+    if (handActionMode === "shattered_clay" && pulsePhaseNow !== "actions") {
+      setHandActionMode(null);
+      setHandActionSelectedIds([]);
+    }
+  }, [game, handActionMode]);
+
+  useEffect(() => {
+    if (!handActionMode || !activeSeat || !game) return;
+    const validIds = new Set((game.hands?.[activeSeat] ?? []).map((card) => card.id));
+    setHandActionSelectedIds((prev) => prev.filter((id) => validIds.has(id)));
+  }, [handActionMode, activeSeat, game]);
+
   if (err) {
     return (
       <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900">
@@ -535,6 +570,16 @@ export default function Game() {
   const terrain = terrainSet[0] ?? null;
   const terrainRemaining = Math.max(0, terrainDeck.length - (terrainIndex + Math.max(1, terrainSet.length)));
   const pulsePhase = game.pulsePhase ?? "selection";
+  const currentPulseKey = `${Math.max(1, Number(game.chapter ?? 1))}:${Math.max(1, Number(game.step ?? 1))}:${Math.max(
+    0,
+    Number(game.terrainIndex ?? 0)
+  )}:${Math.max(0, outcomeLog.length)}`;
+  const temperedCrucibleActiveThisPulse = game.frictionIgnoredPulseKey === currentPulseKey;
+  const conductorSeat = SLOTS.find((s) => game.partPicks?.[s] === "conductor_of_streams") ?? null;
+  const locationConductorOnlyTerrain = Boolean(
+    location?.effects?.some((e) => e?.type === "conductor_only_terrain_view" || e?.type === "suit_only_communication")
+  );
+  const canSelectedSeatSeeTerrainRange = !locationConductorOnlyTerrain || !conductorSeat || selectedSeat === conductorSeat;
   const isPreSelection = pulsePhase === "pre_selection";
   const isDiscardSelectionPhase = pulsePhase === "discard_selection";
   const manualSelectionReveal = Boolean(
@@ -567,7 +612,9 @@ export default function Game() {
     .map((id) => getSigilById(id))
     .filter((sigil): sigil is SigilDef => Boolean(sigil));
   const selectedSeatSigilDetails: AssignedSigilDetail[] = selectedSeatSigils.map((sigil) => {
-    const oncePerChapterEffect = sigil.effects.find((effect) => effect.type.startsWith("once_per_chapter_"));
+    const oncePerChapterEffect = sigil.effects.find(
+      (effect) => effect.type.startsWith("once_per_chapter_") || effect.type === "play_from_discard_once"
+    );
     const used = oncePerChapterEffect
       ? Boolean(game.chapterAbilityUsed?.[selectedSeat]?.[oncePerChapterEffect.type])
       : false;
@@ -603,6 +650,13 @@ export default function Game() {
   };
   const seatHasEffect = (seat: PlayerSlot, effectType: string): boolean =>
     effectsForSeat(seat).some((e) => e && e.type === effectType);
+  const seatHasBalancingAmount = (seat: PlayerSlot, amount: 1 | 2): boolean => {
+    return effectsForSeat(seat).some((effect: any) => {
+      if (!effect || effect.type !== ABILITY_SIGIL_BALANCING_SCALE) return false;
+      const amounts = Array.isArray(effect.amount) ? effect.amount : [1, 2];
+      return amounts.map((value: number) => Math.max(1, Number(value) || 0)).includes(amount);
+    });
+  };
 
   const playedValueChoicesBySeat: Partial<Record<PlayerSlot, SeatValueChoiceInfo>> = (() => {
     const info: Partial<Record<PlayerSlot, SeatValueChoiceInfo>> = {};
@@ -627,16 +681,20 @@ export default function Game() {
           : pulseCardValueOptions(entry.card, seatEffects, { terrainSuit: terrain?.suit ?? null }).map(
               (v) => (v + valueDelta) * valueMultiplier
             );
+      const postRevealValueDelta = Number(entry.postRevealValueDelta ?? 0);
+      const primaryShiftedOptions = postRevealValueDelta
+        ? primaryOptions.map((value) => value + postRevealValueDelta)
+        : primaryOptions;
 
       const seatInfo: SeatValueChoiceInfo = {
-        primaryOptions,
+        primaryOptions: primaryShiftedOptions,
         extraOptions: [],
       };
-      if (typeof entry.valueChoice === "number" && primaryOptions.includes(entry.valueChoice)) {
+      if (typeof entry.valueChoice === "number" && primaryShiftedOptions.includes(entry.valueChoice)) {
         seatInfo.primarySelected = entry.valueChoice;
       }
 
-      optionRows.push(primaryOptions);
+      optionRows.push(primaryShiftedOptions);
       rowMeta.push({ seat, target: "primary" });
 
       if (entry.extraCard) {
@@ -700,9 +758,15 @@ export default function Game() {
   const ABILITY_TIPHARETH_SWAP = "swap_and_skip_turn";
   const ABILITY_ANCHOR = "prevent_stall_limited_refill";
   const ABILITY_HARMONIC_AMPLIFIER = "pay_friction_double_manifested_total";
+  const ABILITY_SIGIL_PLAY_FROM_DISCARD = "play_from_discard_once";
+  const ABILITY_SIGIL_BLACK_SEA = "discard_x_draw_x_for_friction";
+  const ABILITY_SIGIL_SHATTERED_CLAY = "discard_to_shift_value";
+  const ABILITY_SIGIL_RESONANCE_GIFT = "resonance_grants_ally_refill";
+  const ABILITY_SIGIL_BALANCING_SCALE = "post_reveal_reduce_if_top";
+  const ABILITY_SIGIL_TEMPERED_CRUCIBLE = "once_per_chapter_ignore_friction_pulse";
   const locationHasConductorPassRule = Boolean(location?.effects?.some((e) => e?.type === "pre_selection_pass_to_conductor"));
   const conductorOnlySelection = Boolean(location?.effects?.some((e) => e?.type === "conductor_plays_three_cards"));
-  const conductorSeat = SLOTS.find((s) => game.partPicks?.[s] === "conductor_of_streams") ?? null;
+  const handActionModeActive = Boolean(handActionMode);
   const selectedHasPassedToConductor = Boolean(game.conductorPasses?.[selectedSeat]);
   const selectedSeatShouldPassToConductor = Boolean(
     locationHasConductorPassRule && conductorOnlySelection && conductorSeat && selectedSeat !== conductorSeat
@@ -714,6 +778,7 @@ export default function Game() {
       canActForSelected &&
       actingSeat &&
       actingSeat === selectedSeat &&
+      !handActionModeActive &&
       locationHasConductorPassRule &&
       conductorOnlySelection &&
       conductorSeat &&
@@ -722,7 +787,6 @@ export default function Game() {
       !exchangePending &&
       (pulsePhase === "selection" || pulsePhase === "pre_selection")
   );
-
   const canPlayFromSelected = Boolean(
     gameId &&
       uid &&
@@ -730,6 +794,7 @@ export default function Game() {
       actingSeat &&
       actingSeat === selectedSeat &&
       !selectedSeatSkipped &&
+      !handActionModeActive &&
       (conductorOnlySelection ? selectedSeat === conductorSeat : true) &&
       (pulsePhase === "selection"
         ? !exchangePending && (!preSelectionSeats.length || preSelectionDone)
@@ -744,6 +809,7 @@ export default function Game() {
       actingSeat === selectedSeat &&
       selectedHasEffect(ABILITY_EXTRA_CARD) &&
       pulsePhase === "actions" &&
+      !handActionModeActive &&
       Boolean(played[selectedSeat]?.card) &&
       !Boolean(played[selectedSeat]?.extraCard) &&
       !(game.chapterAbilityUsed?.[selectedSeat]?.[ABILITY_EXTRA_CARD] ?? false)
@@ -755,8 +821,60 @@ export default function Game() {
       actingSeat === selectedSeat &&
       selectedHasEffect(ABILITY_TIPHARETH_SWAP) &&
       pulsePhase === "actions" &&
+      !handActionModeActive &&
       Boolean(played[selectedSeat]?.card) &&
       !Boolean(game.skipNextPulse?.[selectedSeat])
+  );
+  const canPlayFromDiscardSigilFromSelected = Boolean(
+    gameId &&
+      uid &&
+      actingSeat &&
+      actingSeat === selectedSeat &&
+      canActForSelected &&
+      selectedHasEffect(ABILITY_SIGIL_PLAY_FROM_DISCARD) &&
+      (pulsePhase === "selection" || pulsePhase === "pre_selection") &&
+      !selectedSeatSkipped &&
+      !played[selectedSeat]?.card &&
+      !exchangePending &&
+      !(game.chapterAbilityUsed?.[selectedSeat]?.[ABILITY_SIGIL_PLAY_FROM_DISCARD] ?? false) &&
+      (game.pulseDiscard?.length ?? 0) > 0 &&
+      !location?.effects?.some((e) => e?.type === "remove_success_cards_from_game")
+  );
+  const canUseBlackSeaSigilFromSelected = Boolean(
+    gameId &&
+      uid &&
+      actingSeat &&
+      actingSeat === selectedSeat &&
+      canActForSelected &&
+      selectedHasEffect(ABILITY_SIGIL_BLACK_SEA) &&
+      (pulsePhase === "selection" || pulsePhase === "pre_selection") &&
+      !selectedSeatSkipped &&
+      !played[selectedSeat]?.card &&
+      !exchangePending &&
+      selectedHandRaw.length > 0
+  );
+  const selectedHasShatteredClayShift = typeof (played[selectedSeat] as any)?.postRevealValueDelta === "number";
+  const canUseShatteredClayFromSelected = Boolean(
+    gameId &&
+      uid &&
+      actingSeat &&
+      actingSeat === selectedSeat &&
+      canActForSelected &&
+      selectedHasEffect(ABILITY_SIGIL_SHATTERED_CLAY) &&
+      pulsePhase === "actions" &&
+      Boolean(played[selectedSeat]?.card) &&
+      !selectedHasShatteredClayShift &&
+      selectedHandRaw.length >= 2
+  );
+  const canUseTemperedCrucibleFromSelected = Boolean(
+    gameId &&
+      uid &&
+      actingSeat &&
+      actingSeat === selectedSeat &&
+      canActForSelected &&
+      selectedHasEffect(ABILITY_SIGIL_TEMPERED_CRUCIBLE) &&
+      ["pre_selection", "selection", "actions", "discard_selection"].includes(pulsePhase) &&
+      !(game.chapterAbilityUsed?.[selectedSeat]?.[ABILITY_SIGIL_TEMPERED_CRUCIBLE] ?? false)
   );
 
   const fuseSeat = actingSeat && seatHasEffect(actingSeat, ABILITY_FUSE) ? actingSeat : null;
@@ -983,6 +1101,106 @@ export default function Game() {
         })
       }
     />
+  ) : handActionMode === "black_sea" ? (
+    <div className="space-y-2">
+      <div className="text-[11px] font-semibold text-white/80">
+        Sigil of the Black Sea: select cards to discard, then draw the same amount (+1 Friction).
+      </div>
+      <div className="text-[11px] text-white/65">Selected {handActionSelectedIds.length} card(s).</div>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() =>
+            void guarded(async () => {
+              if (!uid || !gameId || !actingSeat) return;
+              if (!handActionSelectedIds.length) return;
+              await useBlackSeaSigilDraw(gameId, uid, actingSeat, handActionSelectedIds);
+              setHandActionSelectedIds([]);
+              setHandActionMode(null);
+            })
+          }
+          disabled={busy || !handActionSelectedIds.length}
+          className="rounded-2xl bg-sky-400 px-3 py-1.5 text-[11px] font-extrabold text-slate-950 shadow-sm disabled:opacity-40"
+        >
+          Discard & draw
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setHandActionSelectedIds([]);
+            setHandActionMode(null);
+          }}
+          className="rounded-2xl bg-white/20 px-3 py-1.5 text-[11px] font-extrabold text-white shadow-sm"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  ) : handActionMode === "shattered_clay" ? (
+    <div className="space-y-2">
+      <div className="text-[11px] font-semibold text-white/80">
+        Sigil of Shattered Clay: choose 2 cards of the same suit, then shift manifested value by ±3.
+      </div>
+      <div className="text-[11px] text-white/65">Selected {handActionSelectedIds.length} / 2.</div>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() =>
+            void guarded(async () => {
+              if (!uid || !gameId || !actingSeat) return;
+              if (handActionSelectedIds.length !== 2) return;
+              await useShatteredClayShift(gameId, uid, actingSeat, handActionSelectedIds[0]!, handActionSelectedIds[1]!, 1);
+              setHandActionSelectedIds([]);
+              setHandActionMode(null);
+            })
+          }
+          disabled={
+            busy ||
+            handActionSelectedIds.length !== 2 ||
+            (() => {
+              const cards = selectedHandRaw.filter((card) => handActionSelectedIds.includes(card.id));
+              return cards.length !== 2 || cards[0]!.suit !== cards[1]!.suit;
+            })()
+          }
+          className="rounded-2xl bg-emerald-500 px-3 py-1.5 text-[11px] font-extrabold text-white shadow-sm disabled:opacity-40"
+        >
+          +3
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            void guarded(async () => {
+              if (!uid || !gameId || !actingSeat) return;
+              if (handActionSelectedIds.length !== 2) return;
+              await useShatteredClayShift(gameId, uid, actingSeat, handActionSelectedIds[0]!, handActionSelectedIds[1]!, -1);
+              setHandActionSelectedIds([]);
+              setHandActionMode(null);
+            })
+          }
+          disabled={
+            busy ||
+            handActionSelectedIds.length !== 2 ||
+            (() => {
+              const cards = selectedHandRaw.filter((card) => handActionSelectedIds.includes(card.id));
+              return cards.length !== 2 || cards[0]!.suit !== cards[1]!.suit;
+            })()
+          }
+          className="rounded-2xl bg-rose-500 px-3 py-1.5 text-[11px] font-extrabold text-white shadow-sm disabled:opacity-40"
+        >
+          -3
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setHandActionSelectedIds([]);
+            setHandActionMode(null);
+          }}
+          className="rounded-2xl bg-white/20 px-3 py-1.5 text-[11px] font-extrabold text-white shadow-sm"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
   ) : null;
   const showFacultyInBottomActionPanel = !isMobileLayout && !isDiscardSelectionPhase && !exchangePending;
 
@@ -1212,7 +1430,10 @@ export default function Game() {
                     terrainDeckLength={terrainDeck.length}
                     terrainRemaining={terrainRemaining}
                     canPeekTerrainDeck={
-                      !isPreSelection && SLOTS.some((s) => seatHasEffect(s, "peek_terrain_deck"))
+                      !isPreSelection &&
+                      (locationConductorOnlyTerrain
+                        ? !conductorSeat || selectedSeat === conductorSeat
+                        : SLOTS.some((s) => seatHasEffect(s, "peek_terrain_deck")))
                     }
                     onOpenTerrainDeck={() => setShowTerrainModal(true)}
                     terrain={terrain}
@@ -1220,7 +1441,9 @@ export default function Game() {
                     terrainHiddenState={
                       isPreSelection
                         ? "pre_selection"
-                        : selectedHasEffect("hide_terrain_until_played") &&
+                        : !canSelectedSeatSeeTerrainRange
+                          ? "suit_only"
+                          : selectedHasEffect("hide_terrain_until_played") &&
                             pulsePhase === "selection" &&
                             !played[selectedSeat]?.card
                           ? "hidden_until_played"
@@ -1278,10 +1501,54 @@ export default function Game() {
                           !(game.chapterAbilityUsed?.[seat]?.["once_per_chapter_resonance_as_steam"] ?? false)
                       )
                     }
+                    canBalancingScaleMinus1Seat={(seat) =>
+                      Boolean(
+                        pulsePhase === "actions" &&
+                          uid &&
+                          gameId &&
+                          canControlSeat(game, uid, seat) &&
+                          seatHasBalancingAmount(seat, 1) &&
+                          played[seat]?.card &&
+                          Number((played[seat] as any)?.postRevealValueDelta ?? 0) >= 0
+                      )
+                    }
+                    canBalancingScaleMinus2Seat={(seat) =>
+                      Boolean(
+                        pulsePhase === "actions" &&
+                          uid &&
+                          gameId &&
+                          canControlSeat(game, uid, seat) &&
+                          seatHasBalancingAmount(seat, 2) &&
+                          played[seat]?.card &&
+                          Number((played[seat] as any)?.postRevealValueDelta ?? 0) >= 0
+                      )
+                    }
+                    canTemperedCrucibleSeat={(seat) =>
+                      Boolean(
+                        pulsePhase === "actions" &&
+                          uid &&
+                          gameId &&
+                          canControlSeat(game, uid, seat) &&
+                          seatHasEffect(seat, ABILITY_SIGIL_TEMPERED_CRUCIBLE) &&
+                          !(game.chapterAbilityUsed?.[seat]?.[ABILITY_SIGIL_TEMPERED_CRUCIBLE] ?? false)
+                      )
+                    }
                     onSteamSigil={(seat) =>
                       void guarded(async () => {
                         if (!uid || !gameId) return;
                         await useSteamSigilResonance(gameId, uid, seat);
+                      })
+                    }
+                    onBalancingScale={(seat, amount) =>
+                      void guarded(async () => {
+                        if (!uid || !gameId) return;
+                        await useBalancingScale(gameId, uid, seat, amount);
+                      })
+                    }
+                    onTemperedCrucible={(seat) =>
+                      void guarded(async () => {
+                        if (!uid || !gameId) return;
+                        await useTemperedCrucible(gameId, uid, seat);
                       })
                     }
                     canSwapR1Seat={(seat) =>
@@ -1306,6 +1573,21 @@ export default function Game() {
                           !played[seat]?.totalMultiplier
                       )
                     }
+                    canResonanceGiftSeat={(seat) =>
+                      Boolean(
+                        pulsePhase === "actions" &&
+                          uid &&
+                          gameId &&
+                          canControlSeat(game, uid, seat) &&
+                          seatHasEffect(seat, ABILITY_SIGIL_RESONANCE_GIFT) &&
+                          played[seat]?.card
+                      )
+                    }
+                    resonanceGiftTargetBySeat={SLOTS.reduce((acc, seat) => {
+                      const entry = played[seat] as any;
+                      acc[seat] = (entry?.resonanceGiftSeat as PlayerSlot | null | undefined) ?? null;
+                      return acc;
+                    }, {} as Partial<Record<PlayerSlot, PlayerSlot | null>>)}
                     onSwapR1={(seat) =>
                       void guarded(async () => {
                         if (!uid || !gameId) return;
@@ -1330,6 +1612,12 @@ export default function Game() {
                         await useHarmonicAmplifier(gameId, uid, seat);
                       })
                     }
+                    onSetResonanceGiftSeat={(seat, target) =>
+                      void guarded(async () => {
+                        if (!uid || !gameId) return;
+                        await setResonanceGiftSeat(gameId, uid, seat, target);
+                      })
+                    }
                   />
                 )}
               </div>
@@ -1345,13 +1633,31 @@ export default function Game() {
             message={bottomMessage}
             canSeeHand={canSeeSelectedHand}
             hand={canSeeSelectedHand ? selectedHand : selectedHandRaw}
-            selectedCardIds={isDiscardSelectionPhase ? pendingDiscardSelectedIds : undefined}
-            selectedCardId={selectedCardId}
+            selectedCardIds={
+              isDiscardSelectionPhase
+                ? pendingDiscardSelectedIds
+                : handActionModeActive
+                  ? handActionSelectedIds
+                  : undefined
+            }
+            selectedCardId={handActionModeActive ? null : selectedCardId}
             onToggleSelectCard={(cardId) => {
               if (isDiscardSelectionPhase) {
                 void guarded(async () => {
                   if (!uid || !gameId || !canManagePendingDiscardForSelected) return;
                   await togglePendingDiscardSelection(gameId, uid, selectedSeat, cardId);
+                });
+                return;
+              }
+              if (handActionMode === "black_sea") {
+                setHandActionSelectedIds((prev) => (prev.includes(cardId) ? prev.filter((id) => id !== cardId) : [...prev, cardId]));
+                return;
+              }
+              if (handActionMode === "shattered_clay") {
+                setHandActionSelectedIds((prev) => {
+                  if (prev.includes(cardId)) return prev.filter((id) => id !== cardId);
+                  if (prev.length >= 2) return prev;
+                  return [...prev, cardId];
                 });
                 return;
               }
@@ -1400,13 +1706,93 @@ export default function Game() {
                 </button>
                 <button
                   type="button"
-                  onClick={() => setShowDiscardModal(true)}
+                  onClick={() => {
+                    setDiscardModalMode("inspect");
+                    setShowDiscardModal(true);
+                  }}
                   className="flex h-9 items-center gap-1 rounded-2xl bg-white/10 px-2 text-[11px] font-extrabold text-white ring-1 ring-white/10 hover:bg-white/15"
                   aria-label="Inspect discard pile"
                   title="Discard pile"
                 >
                   🗑 <span className="font-semibold text-white/70">{discardAll.length}</span>
                 </button>
+                {canPlayFromDiscardSigilFromSelected && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setDiscardModalMode("play_from_discard");
+                      setShowDiscardModal(true);
+                    }}
+                    className="flex h-9 items-center gap-1 rounded-2xl bg-violet-400/85 px-2 text-[11px] font-extrabold text-slate-950 ring-1 ring-violet-200/30 hover:bg-violet-300"
+                    title="Manifest from discard (once per Sphere)"
+                  >
+                    ✶ Discard
+                  </button>
+                )}
+                {canUseBlackSeaSigilFromSelected && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedCardId(null);
+                      setHandActionSelectedIds([]);
+                      setHandActionMode((prev) => (prev === "black_sea" ? null : "black_sea"));
+                    }}
+                    className={`flex h-9 items-center gap-1 rounded-2xl px-2 text-[11px] font-extrabold ring-1 ${
+                      handActionMode === "black_sea"
+                        ? "bg-sky-300 text-slate-950 ring-sky-100/60"
+                        : "bg-sky-400/75 text-slate-950 ring-sky-200/30 hover:bg-sky-300"
+                    }`}
+                    title="Discard any number, draw equal (+1 Friction)"
+                  >
+                    ≋ Draw
+                  </button>
+                )}
+                {canUseShatteredClayFromSelected && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSelectedCardId(null);
+                      setHandActionSelectedIds([]);
+                      setHandActionMode((prev) => (prev === "shattered_clay" ? null : "shattered_clay"));
+                    }}
+                    className={`flex h-9 items-center gap-1 rounded-2xl px-2 text-[11px] font-extrabold ring-1 ${
+                      handActionMode === "shattered_clay"
+                        ? "bg-amber-200 text-slate-950 ring-amber-100/60"
+                        : "bg-amber-300/80 text-slate-950 ring-amber-200/30 hover:bg-amber-200"
+                    }`}
+                    title="Discard 2 same-suit cards to shift value ±3"
+                  >
+                    ◇ ±3
+                  </button>
+                )}
+                {(selectedHasEffect(ABILITY_SIGIL_TEMPERED_CRUCIBLE) &&
+                  ["pre_selection", "selection", "actions", "discard_selection"].includes(pulsePhase) &&
+                  (canUseTemperedCrucibleFromSelected ||
+                    (temperedCrucibleActiveThisPulse &&
+                      Boolean(game.chapterAbilityUsed?.[selectedSeat]?.[ABILITY_SIGIL_TEMPERED_CRUCIBLE])))) && (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      void guarded(async () => {
+                        if (!uid || !gameId || !actingSeat) return;
+                        await useTemperedCrucible(gameId, uid, actingSeat);
+                      })
+                    }
+                    disabled={busy || !canUseTemperedCrucibleFromSelected}
+                    className={`flex h-9 items-center gap-1 rounded-2xl px-2 text-[11px] font-extrabold ring-1 ${
+                      temperedCrucibleActiveThisPulse
+                        ? "bg-rose-200 text-rose-950 ring-rose-100/80"
+                        : "bg-rose-300/80 text-slate-950 ring-rose-200/30 hover:bg-rose-200"
+                    } disabled:opacity-50`}
+                    title={
+                      temperedCrucibleActiveThisPulse
+                        ? "Tempered Crucible active for this Pulse"
+                        : "Ignore all Friction for this Pulse (once per Sphere)"
+                    }
+                  >
+                    ♨ Temper
+                  </button>
+                )}
                 <button
                   type="button"
                   onClick={() => setShowLogModal(true)}
@@ -1511,9 +1897,25 @@ export default function Game() {
 
       <DiscardModal
         open={showDiscardModal}
-        onClose={() => setShowDiscardModal(false)}
+        onClose={() => {
+          setShowDiscardModal(false);
+          setDiscardModalMode("inspect");
+        }}
         discardAll={discardAll}
         lastDiscarded={lastDiscarded}
+        selectable={discardModalMode === "play_from_discard"}
+        selectionLabel="Tap a card to manifest it"
+        onSelectCard={
+          discardModalMode === "play_from_discard"
+            ? (cardId) =>
+                void guarded(async () => {
+                  if (!uid || !gameId || !actingSeat) return;
+                  await playDiscardSigilCard(gameId, uid, actingSeat, cardId);
+                  setShowDiscardModal(false);
+                  setDiscardModalMode("inspect");
+                })
+            : undefined
+        }
       />
 
       <TerrainDeckModal

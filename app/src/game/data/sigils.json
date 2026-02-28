@@ -38,5 +38,63 @@
     "name": "The Sigil of Acid",
     "text": "Corrosive Transmutation. Passive: when your Acid manifestation matches the Law and triggers Resonance refill, you may discard up to 2 cards from your hand before refilling to capacity.",
     "effects": [{ "type": "acid_resonance_discard_two_then_refill" }]
+  },
+  {
+    "id": "sigil_of_the_great_matrix",
+    "tier": 1,
+    "color": "#a78bfa",
+    "name": "Sigil of the Great Matrix",
+    "text": "Structural Memory. Once per Chapter, you may manifest a card directly from the Discard Pile instead of your hand (it is visible to all players). This card does not grant a Resonance refill.",
+    "effects": [{ "type": "play_from_discard_once" }]
+  },
+
+  {
+    "id": "sigil_of_the_black_sea",
+    "tier": 2,
+    "color": "#1d4ed8",
+    "name": "Sigil of the Black Sea",
+    "text": "The Waters of Marah. During the Selection Phase, you may discard any number of cards from your awareness and draw an equal amount from the Pulse Deck. If you do, generate +1 Friction.",
+    "effects": [{ "type": "discard_x_draw_x_for_friction" }]
+  },
+  {
+    "id": "sigil_of_shattered_clay",
+    "tier": 2,
+    "color": "#b45309",
+    "name": "Sigil of Shattered Clay",
+    "text": "Sacrifice for Form. After the reveal, you may discard two cards from your awareness that share the same suit to add +3 or -3 to your manifested card’s value.",
+    "effects": [{ "type": "discard_to_shift_value", "amount": 3 }]
+  },
+  {
+    "id": "sigil_of_the_constricted_breath",
+    "tier": 2,
+    "color": "#e2e8f0",
+    "name": "Sigil of the Constricted Breath",
+    "text": "Shared Grace. Whenever you trigger a Resonance refill (matching suit), you may choose one other player. That player also refills their awareness to full.",
+    "effects": [{ "type": "resonance_grants_ally_refill" }]
+  },
+  {
+    "id": "sigil_of_the_balancing_scale",
+    "tier": 2,
+    "color": "#f59e0b",
+    "name": "Sigil of the Balancing Scale",
+    "text": "After reveal, if your manifested value is tied for the highest among active players, you may reduce your manifested value by 1 or 2.",
+    "effects": [{ "type": "post_reveal_reduce_if_top", "amount": [1, 2] }]
+  },
+
+  {
+    "id": "sigil_of_the_tempered_crucible",
+    "tier": 3,
+    "color": "#ef4444",
+    "name": "Sigil of the Tempered Crucible",
+    "text": "Once per Chapter, at any time during a Pulse, temper the vessel: all Friction gained in that Pulse is ignored. When activated, Friction and any Friction-threshold Spark loss already taken in that Pulse are removed retroactively. The protection lasts until the Pulse ends.",
+    "effects": [{ "type": "once_per_chapter_ignore_friction_pulse" }]
+  },
+  {
+    "id": "sigil_of_recursive_form",
+    "tier": 3,
+    "color": "#a78bfa",
+    "name": "Sigil of Recursive Form",
+    "text": "On Success, before refill, recover 1 top card from the discard pile into your hand (if any).",
+    "effects": [{ "type": "success_recover_from_discard", "count": 1 }]
   }
 ]

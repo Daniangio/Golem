@@ -38,6 +38,9 @@ export type Effect =
   | { type: "pre_selection_pass_to_conductor"; countPerDonor?: number }
   | { type: "conductor_plays_three_cards" }
   | { type: "requires_consecutive_successes"; count: number }
+  | { type: "remove_success_cards_from_game" }
+  | { type: "conductor_only_terrain_view" }
+  | { type: "suit_only_communication" }
   | { type: "invert_suits_value_sign"; suits?: Array<Exclude<PulseSuit, "prism">> }
   | { type: "rotate_faculties_clockwise_on_success" }
   | { type: "reveal_three_terrains" }
@@ -55,7 +58,14 @@ export type Effect =
   | { type: "once_per_chapter_resonance_as_steam" }
   | { type: "swap_friction_zero_if_replaced_suit"; suit: Exclude<PulseSuit, "prism"> }
   | { type: "once_per_chapter_overshoot_stone_to_friction" }
-  | { type: "acid_resonance_discard_two_then_refill" };
+  | { type: "acid_resonance_discard_two_then_refill" }
+  | { type: "play_from_discard_once" }
+  | { type: "discard_x_draw_x_for_friction" }
+  | { type: "discard_to_shift_value"; amount: number }
+  | { type: "resonance_grants_ally_refill" }
+  | { type: "post_reveal_reduce_if_top"; amount: [number, number] }
+  | { type: "once_per_chapter_ignore_friction_pulse" }
+  | { type: "success_recover_from_discard"; count: number };
 
 export type FacultyDef = {
   id: string;

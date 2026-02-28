@@ -9,11 +9,17 @@ export function DiscardModal({
   onClose,
   discardAll,
   lastDiscarded,
+  selectable = false,
+  selectionLabel = "Select from discard",
+  onSelectCard,
 }: {
   open: boolean;
   onClose: () => void;
   discardAll: PulseCard[];
   lastDiscarded: PulseCard[];
+  selectable?: boolean;
+  selectionLabel?: string;
+  onSelectCard?: (cardId: string) => void;
 }) {
   if (!open) return null;
 
@@ -49,7 +55,12 @@ export function DiscardModal({
         ) : null}
 
         <div className="mt-5">
-          <div className="text-xs font-semibold text-white/60">All discarded</div>
+          <div className="flex items-center justify-between gap-2">
+            <div className="text-xs font-semibold text-white/60">All discarded</div>
+            {selectable && onSelectCard ? (
+              <div className="text-[11px] font-semibold text-violet-200/85">{selectionLabel}</div>
+            ) : null}
+          </div>
           <div className="mt-2 max-h-[60vh] overflow-visible rounded-2xl bg-white/5 p-3 ring-1 ring-white/10">
             <div className="flex flex-wrap gap-2">
               {[...discardAll].reverse().map((card, idx) => (
@@ -59,7 +70,10 @@ export function DiscardModal({
                   selected={false}
                   lift="none"
                   className="scale-[0.9]"
-                  onClick={() => {}}
+                  onClick={() => {
+                    if (!selectable || !onSelectCard) return;
+                    onSelectCard(card.id);
+                  }}
                 />
               ))}
             </div>
