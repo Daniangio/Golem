@@ -11,6 +11,10 @@ export function DiscardModal({
   lastDiscarded,
   selectable = false,
   selectionLabel = "Select from discard",
+  selectedCardId = null,
+  confirmSelectedLabel,
+  onConfirmSelected,
+  confirmSelectedDisabled = false,
   onSelectCard,
 }: {
   open: boolean;
@@ -19,6 +23,10 @@ export function DiscardModal({
   lastDiscarded: PulseCard[];
   selectable?: boolean;
   selectionLabel?: string;
+  selectedCardId?: string | null;
+  confirmSelectedLabel?: string;
+  onConfirmSelected?: () => void;
+  confirmSelectedDisabled?: boolean;
   onSelectCard?: (cardId: string) => void;
 }) {
   if (!open) return null;
@@ -64,21 +72,63 @@ export function DiscardModal({
           <div className="mt-2 max-h-[60vh] overflow-visible rounded-2xl bg-white/5 p-3 ring-1 ring-white/10">
             <div className="flex flex-wrap gap-2">
               {[...discardAll].reverse().map((card, idx) => (
-                <PulseCardMini
-                  key={`${card.id}:${idx}`}
-                  card={card}
-                  selected={false}
-                  lift="none"
-                  className="scale-[0.9]"
-                  onClick={() => {
-                    if (!selectable || !onSelectCard) return;
-                    onSelectCard(card.id);
-                  }}
-                />
+                <div key={`${card.id}:${idx}`} className="relative">
+                  <PulseCardMini
+                    card={card}
+                    selected={selectedCardId === card.id}
+                    lift="none"
+                    className="scale-[0.9]"
+                    onClick={() => {
+                      if (!selectable || !onSelectCard) return;
+                      onSelectCard(card.id);
+                    }}
+                  />
+                  {selectedCardId === card.id && onConfirmSelected && confirmSelectedLabel ? (
+                    <button
+                      type="button"
+                      onClick={onConfirmSelected}
+                      disabled={confirmSelectedDisabled}
+                      className="absolute left-1/2 top-0 z-20 w-[72px] -translate-x-1/2 -translate-y-full rounded-full bg-white px-2 py-0.5 text-[10px] font-extrabold text-slate-900 shadow disabled:opacity-40"
+                    >
+                      {confirmSelectedLabel}
+                    </button>
+                  ) : null}
+                </div>
               ))}
             </div>
           </div>
         </div>
+      </div>
+    </div>
+  );
+}
+
+export function GameNoticeToast({
+  notice,
+}: {
+  notice:
+    | {
+        id: string;
+        kind: string;
+        title: string;
+        text: string;
+        card?: PulseCard | null;
+      }
+    | null
+    | undefined;
+}) {
+  if (!notice) return null;
+
+  return (
+    <div className="pointer-events-none fixed inset-x-0 top-3 z-[90] flex justify-center px-3">
+      <div className="pointer-events-auto w-full max-w-md rounded-2xl bg-slate-950/95 px-3 py-2 text-white shadow-2xl ring-1 ring-white/15">
+        <div className="text-[11px] font-semibold text-violet-200/90">{notice.title}</div>
+        <div className="mt-0.5 text-[12px] text-white/85">{notice.text}</div>
+        {notice.card ? (
+          <div className="mt-2 flex justify-center">
+            <PulseCardMini card={notice.card} selected={false} lift="none" onClick={() => {}} />
+          </div>
+        ) : null}
       </div>
     </div>
   );

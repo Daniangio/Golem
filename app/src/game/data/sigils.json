@@ -94,7 +94,7 @@
     "tier": 3,
     "color": "#a78bfa",
     "name": "Sigil of Recursive Form",
-    "text": "On Success, before refill, recover 1 top card from the discard pile into your hand (if any).",
+    "text": "On Success, before refill, you may recover 1 card of your choice from the discard pile into your hand.",
     "effects": [{ "type": "success_recover_from_discard", "count": 1 }]
   }
 ]

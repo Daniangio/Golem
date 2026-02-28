@@ -50,7 +50,7 @@ export type TerrainDeckType =
   | "sphere_2"
   | "sphere_3";
 
-export type PulsePhase = "pre_selection" | "selection" | "actions" | "discard_selection";
+export type PulsePhase = "pre_selection" | "selection" | "actions" | "discard_selection" | "recover_selection";
 
 // Per-sphere once-only abilities keyed by ability/effect id.
 export type ChapterAbilityUsed = Partial<Record<PlayerSlot, Partial<Record<string, boolean>>>>;
@@ -92,6 +92,13 @@ export type PendingDiscardState = {
   confirmed?: Partial<Record<PlayerSlot, boolean>>;
 };
 
+export type PendingRecoverState = {
+  reason: "recursive_form_recover";
+  seats: PlayerSlot[];
+  selections?: Partial<Record<PlayerSlot, string | null>>;
+  confirmed?: Partial<Record<PlayerSlot, boolean>>;
+};
+
 export type GameDoc = {
   createdAt?: any; // serverTimestamp
   updatedAt?: any; // serverTimestamp
@@ -99,6 +106,7 @@ export type GameDoc = {
 
   status: GameStatus;
   visibility: GameVisibility;
+  targetPlayers?: 2 | 3;
   gameMode?: GameMode;
   campaignVariant?: CampaignVariant;
   campaignRandomFaculties?: boolean;
@@ -108,6 +116,7 @@ export type GameDoc = {
   players: Players;
   playerNames?: PlayerNames;
   playerUids?: string[]; // human UIDs (used for "my games" query)
+  pseudoControllerUid?: string | null;
   invitedUids?: string[];
 
   startedAt?: any; // serverTimestamp
@@ -160,6 +169,15 @@ export type GameDoc = {
   pulseFrictionAnchor?: { key: string; hp: number; heat: number } | null;
   frictionIgnoredPulseKey?: string | null;
   pendingDiscard?: PendingDiscardState;
+  pendingRecover?: PendingRecoverState;
+  uiNotice?: {
+    id: string;
+    kind: string;
+    title: string;
+    text: string;
+    card?: PulseCard | null;
+    atMs: number;
+  };
   lastOutcome?: {
     result: "success" | "undershoot" | "overshoot";
     total: number;

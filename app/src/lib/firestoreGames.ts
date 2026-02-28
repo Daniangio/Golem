@@ -22,6 +22,7 @@ import type {
   ChapterGlobalUsed,
   PendingDiscardSeatRequest,
   PendingDiscardState,
+  PendingRecoverState,
   PlayerSlot,
   Players,
   PulseCard,
@@ -50,6 +51,8 @@ const GAMES = collection(db, "games");
 
 const SLOTS: PlayerSlot[] = ["p1", "p2", "p3"];
 const TUTORIAL_LOCATION_ID = "TUTORIAL_MALKUTH_AWAKENING";
+const SHARED_PSEUDO_UID = "shared:p3";
+const SHARED_PSEUDO_NAME = "Shared Vessel";
 
 function effectsForSeat(
   data: Pick<GameDoc, "locationId" | "partPicks"> & Partial<Pick<GameDoc, "seatSigils" | "gameMode">>,
@@ -75,10 +78,13 @@ function hasEffect(effects: any[], type: string): boolean {
 }
 
 function handCapacityForSeat(
-  data: Pick<GameDoc, "baseHandCapacity" | "partPicks" | "locationId"> & Partial<Pick<GameDoc, "seatSigils" | "gameMode">>,
+  data: Pick<GameDoc, "baseHandCapacity" | "partPicks" | "locationId"> &
+    Partial<Pick<GameDoc, "seatSigils" | "gameMode" | "targetPlayers" | "players">>,
   seat: PlayerSlot
 ): number {
-  const base = data.baseHandCapacity ?? 5;
+  const sharedSeatBaseline =
+    targetPlayersForGame(data) === 2 && seat === "p3" && isSharedPseudoUid(data.players?.p3) ? 3 : null;
+  const base = sharedSeatBaseline ?? data.baseHandCapacity ?? 5;
   const effects = effectsForSeat(data, seat);
   const fixed = effects.find((e) => e?.type === "hand_capacity_set");
   const baseCap = fixed ? Math.max(0, Number(fixed.amount) || 0) : base;
@@ -372,6 +378,8 @@ function buildPlayPhasePatchFromPicks(data: GameDoc, picks: Record<PlayerSlot, s
         locationId: data.locationId ?? undefined,
         seatSigils: data.seatSigils,
         gameMode: data.gameMode,
+        targetPlayers: data.targetPlayers,
+        players: data.players,
       },
       seat
     );
@@ -427,6 +435,7 @@ function buildPlayPhasePatchFromPicks(data: GameDoc, picks: Record<PlayerSlot, s
     pulseFrictionAnchor: { key: initialPulseKey, hp: data.golem?.hp ?? 5, heat: data.golem?.heat ?? 0 },
     frictionIgnoredPulseKey: null,
     pendingDiscard: deleteField(),
+    pendingRecover: deleteField(),
   };
 }
 
@@ -482,6 +491,7 @@ function buildTutorialPlayPatch(data: GameDoc, locationId: string) {
     pulseFrictionAnchor: { key: initialPulseKey, hp: data.golem?.hp ?? 5, heat: data.golem?.heat ?? 0 },
     frictionIgnoredPulseKey: null,
     pendingDiscard: deleteField(),
+    pendingRecover: deleteField(),
   };
 }
 
@@ -529,13 +539,21 @@ export function playerCount(players: Players): number {
   return SLOTS.map((s) => players[s]).filter(Boolean).length;
 }
 
+function targetPlayersForGame(data: Partial<Pick<GameDoc, "targetPlayers">>): 2 | 3 {
+  return data.targetPlayers === 2 ? 2 : 3;
+}
+
+function joinableSlotsForTarget(targetPlayers: 2 | 3): PlayerSlot[] {
+  return targetPlayers === 2 ? (["p1", "p2"] as PlayerSlot[]) : SLOTS;
+}
+
 export function getMySlot(players: Players, uid: string): PlayerSlot | null {
   for (const s of SLOTS) if (players[s] === uid) return s;
   return null;
 }
 
-function pickEmptySlot(players: Players): PlayerSlot | null {
-  for (const s of SLOTS) if (!players[s]) return s;
+function pickEmptySlot(players: Players, slots: PlayerSlot[] = SLOTS): PlayerSlot | null {
+  for (const s of slots) if (!players[s]) return s;
   return null;
 }
 
@@ -548,10 +566,31 @@ function isBotUid(uid: string): boolean {
   return uid.startsWith("bot:");
 }
 
+function isSharedPseudoUid(uid: string | undefined | null): boolean {
+  return Boolean(uid && uid.startsWith("shared:"));
+}
+
+function canActorControlSeat(
+  data: Pick<GameDoc, "players" | "createdBy" | "pseudoControllerUid">,
+  actorUid: string,
+  seat: PlayerSlot
+): boolean {
+  const seatUid = data.players?.[seat];
+  if (!seatUid) return false;
+  if (seatUid === actorUid) return true;
+  if (isSharedPseudoUid(seatUid)) {
+    const controller = data.pseudoControllerUid ?? data.createdBy ?? null;
+    if (controller === actorUid) return true;
+    return Boolean(data.createdBy === actorUid && controller && isBotUid(controller));
+  }
+  return Boolean(data.createdBy === actorUid && isBotUid(seatUid));
+}
+
 export type CreateGameOptions = {
   campaignVariant?: CampaignVariant;
   campaignRandomFaculties?: boolean;
   campaignPathId?: string | null;
+  targetPlayers?: 2 | 3;
 };
 
 function nextBotName(players: Players, playerNames: Record<string, string>): string {
@@ -578,12 +617,14 @@ export async function createGameAndJoin(
   const campaignVariant = normalizeCampaignVariant(options);
   const campaignRandomFaculties = normalizeCampaignRandomFaculties(options);
   const campaignPathId = normalizeCampaignPathId(options);
+  const targetPlayers = targetPlayersForGame(options);
   const initial: GameDoc = {
     createdAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
     createdBy: uid,
     status: "lobby",
     visibility,
+    targetPlayers,
     gameMode,
     campaignVariant,
     campaignRandomFaculties,
@@ -598,6 +639,7 @@ export async function createGameAndJoin(
     chapter: 1,
     step: 1,
     golem: { hp: 5, heat: 0 },
+    pseudoControllerUid: uid,
   };
 
   const ref = await addDoc(GAMES, initial);
@@ -661,6 +703,8 @@ export async function joinGame(gameId: string, uid: string, name: string) {
     const players: Players = { ...(data.players ?? {}) };
     const playerNames = { ...(data.playerNames ?? {}) };
     const invitedUids = (data.invitedUids ?? []).filter((u) => u !== uid);
+    const targetPlayers = targetPlayersForGame(data);
+    const joinableSlots = joinableSlotsForTarget(targetPlayers);
 
     const already = getMySlot(players, uid);
     if (already) {
@@ -675,7 +719,7 @@ export async function joinGame(gameId: string, uid: string, name: string) {
       return;
     }
 
-    const slot = pickEmptySlot(players);
+    const slot = pickEmptySlot(players, joinableSlots);
     if (!slot) throw new Error("Room is full.");
 
     players[slot] = uid;
@@ -731,9 +775,9 @@ export async function addBot(gameId: string, hostUid: string) {
 
     if (data.status !== "lobby") throw new Error("Bots can only be added in lobby.");
     if (data.createdBy !== hostUid) throw new Error("Only the host can add bots.");
-
+    const targetPlayers = targetPlayersForGame(data);
     const players: Players = { ...(data.players ?? {}) };
-    const slot = pickEmptySlot(players);
+    const slot = pickEmptySlot(players, joinableSlotsForTarget(targetPlayers));
     if (!slot) throw new Error("Room is full.");
 
     const botUid = `bot:${crypto.randomUUID()}`;
@@ -785,9 +829,21 @@ export async function startGame(gameId: string, hostUid: string) {
     if (data.status !== "lobby") throw new Error("Game already started.");
     if (data.createdBy !== hostUid) throw new Error("Only the host can start the game.");
 
+    const targetPlayers = targetPlayersForGame(data);
     const players: Players = { ...(data.players ?? {}) };
-    const full = SLOTS.every((s) => Boolean(players[s]));
-    if (!full) throw new Error("Need 3 players (add bots or wait for friends).");
+    const joinableSlots = joinableSlotsForTarget(targetPlayers);
+    const full = joinableSlots.every((s) => Boolean(players[s]));
+    if (!full) throw new Error(`Need ${targetPlayers} players${targetPlayers === 3 ? " (add bots or wait for friends)." : "."}`);
+
+    const playerNames = { ...(data.playerNames ?? {}) };
+    let pseudoControllerUid = data.pseudoControllerUid ?? data.createdBy ?? null;
+    if (targetPlayers === 2) {
+      players.p3 = SHARED_PSEUDO_UID;
+      playerNames[SHARED_PSEUDO_UID] = playerNames[SHARED_PSEUDO_UID] ?? SHARED_PSEUDO_NAME;
+      if (!pseudoControllerUid || !(players.p1 === pseudoControllerUid || players.p2 === pseudoControllerUid)) {
+        pseudoControllerUid = players.p1 ?? players.p2 ?? data.createdBy ?? null;
+      }
+    }
 
     const gameMode = (data.gameMode ?? "campaign") as GameMode;
     const campaignVariant = normalizeCampaignVariant(data);
@@ -823,6 +879,7 @@ export async function startGame(gameId: string, hostUid: string) {
       sigilDraftMaxPicks: 0,
       sigilDraftContext: deleteField(),
       pendingDiscard: deleteField(),
+      pendingRecover: deleteField(),
       conductorPasses: deleteField(),
       partPicks: {},
       optionalPartId: null,
@@ -831,11 +888,17 @@ export async function startGame(gameId: string, hostUid: string) {
       chapter: 1,
       step: 1,
       golem: { hp: 5, heat: 0 },
+      players,
+      playerNames,
+      pseudoControllerUid: targetPlayers === 2 ? pseudoControllerUid : null,
     };
 
     const autoLocationCampaign = gameMode === "campaign" && campaignVariant !== "free_choice" && locationOptions.length === 1;
     if (gameMode === "tutorial") {
-      const patch = buildTutorialPlayPatch({ ...data, locationId: TUTORIAL_LOCATION_ID, gameMode }, TUTORIAL_LOCATION_ID);
+      const patch = buildTutorialPlayPatch(
+        { ...data, players, playerNames, pseudoControllerUid, locationId: TUTORIAL_LOCATION_ID, gameMode },
+        TUTORIAL_LOCATION_ID
+      );
       tx.update(gameRef, {
         ...basePatch,
         locationId: TUTORIAL_LOCATION_ID,
@@ -852,7 +915,10 @@ export async function startGame(gameId: string, hostUid: string) {
       if (campaignRandomFaculties) {
         const picks = randomPartPicksForLocation(chosenLocation);
         if (!picks) throw new Error("Unable to generate random faculty assignment for selected location.");
-        const patch = buildPlayPhasePatchFromPicks({ ...data, locationId: chosenLocation, gameMode }, picks);
+        const patch = buildPlayPhasePatchFromPicks(
+          { ...data, players, playerNames, pseudoControllerUid, locationId: chosenLocation, gameMode },
+          picks
+        );
         tx.update(gameRef, {
           ...basePatch,
           locationId: chosenLocation,
@@ -899,9 +965,7 @@ export async function setLocationVote(
 
     const seatUid = data.players?.[seat];
     if (!seatUid) throw new Error("Seat is empty.");
-    const isBot = isBotUid(seatUid);
-    const isHost = data.createdBy === actorUid;
-    if (seatUid !== actorUid && !(isHost && isBot)) {
+    if (!canActorControlSeat(data, actorUid, seat)) {
       throw new Error("You can't vote for that seat.");
     }
 
@@ -1000,6 +1064,7 @@ export async function confirmLocation(gameId: string, actorUid: string, preferre
         sigilDraftAssignments: {},
         sigilDraftMaxPicks: allSigilIds.length,
         pendingDiscard: deleteField(),
+        pendingRecover: deleteField(),
         conductorPasses: deleteField(),
         partPicks: {},
         updatedAt: serverTimestamp(),
@@ -1017,6 +1082,7 @@ export async function confirmLocation(gameId: string, actorUid: string, preferre
       sigilDraftAssignments: deleteField(),
       sigilDraftMaxPicks: deleteField(),
       pendingDiscard: deleteField(),
+      pendingRecover: deleteField(),
       conductorPasses: deleteField(),
       partPicks: {},
       updatedAt: serverTimestamp(),
@@ -1048,9 +1114,7 @@ export async function setPartPick(
 
     const seatUid = data.players?.[seat];
     if (!seatUid) throw new Error("Seat is empty.");
-    const isBot = isBotUid(seatUid);
-    const isHost = data.createdBy === actorUid;
-    if (seatUid !== actorUid && !(isHost && isBot)) {
+    if (!canActorControlSeat(data, actorUid, seat)) {
       throw new Error("You can't pick for that seat.");
     }
 
@@ -1067,6 +1131,30 @@ export async function setPartPick(
     } else {
       tx.update(gameRef, { [`partPicks.${seat}`]: deleteField(), updatedAt: serverTimestamp() });
     }
+  });
+}
+
+export async function setPseudoController(gameId: string, actorUid: string, controllerUid: string) {
+  const gameRef = doc(db, "games", gameId);
+
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(gameRef);
+    if (!snap.exists()) throw new Error("Game not found.");
+    const data = snap.data() as GameDoc;
+
+    if (data.status !== "active") throw new Error("Game is not active.");
+    if (targetPlayersForGame(data) !== 2) throw new Error("Pseudo-controller is used only in 2-player rooms.");
+
+    const p1 = data.players?.p1 ?? null;
+    const p2 = data.players?.p2 ?? null;
+    if (!p1 || !p2) throw new Error("Both player seats must be occupied.");
+    if (actorUid !== p1 && actorUid !== p2) throw new Error("Only seated players can set pseudo-controller.");
+    if (controllerUid !== p1 && controllerUid !== p2) throw new Error("Controller must be one of the two seated players.");
+
+    tx.update(gameRef, {
+      pseudoControllerUid: controllerUid,
+      updatedAt: serverTimestamp(),
+    });
   });
 }
 
@@ -1098,10 +1186,8 @@ export async function setSigilDraftAssignment(
 
     const canControlSeat = (slot: PlayerSlot | null): boolean => {
       if (!slot) return false;
-      const seatUid = data.players?.[slot];
-      if (!seatUid) return false;
-      if (seatUid === actorUid) return true;
-      return isHost && isBotUid(seatUid);
+      if (isHost) return true;
+      return canActorControlSeat(data, actorUid, slot);
     };
 
     if (!isHost) {
@@ -1317,7 +1403,7 @@ export async function playCard(gameId: string, actorUid: string, seat: PlayerSlo
     if (!seatUid) throw new Error("Seat is empty.");
     const isBot = isBotUid(seatUid);
     const isHost = data.createdBy === actorUid;
-    if (seatUid !== actorUid && !(isHost && isBot)) throw new Error("You can't play for that seat.");
+    if (!canActorControlSeat(data, actorUid, seat)) throw new Error("You can't play for that seat.");
     const location = getLocationById(data.locationId ?? null);
     const locationEffects = location?.effects ?? [];
     const hasUnboundedSelection = locationEffects.some((e) => e?.type === "selection_unbounded_cards");
@@ -1448,7 +1534,7 @@ export async function playDiscardSigilCard(gameId: string, actorUid: string, sea
     if (!seatUid) throw new Error("Seat is empty.");
     const isBot = isBotUid(seatUid);
     const isHost = data.createdBy === actorUid;
-    if (seatUid !== actorUid && !(isHost && isBot)) throw new Error("You can't play for that seat.");
+    if (!canActorControlSeat(data, actorUid, seat)) throw new Error("You can't play for that seat.");
 
     const abilityKey = "play_from_discard_once";
     if (!hasEffect(effectsForSeat(data, seat), abilityKey)) {
@@ -1565,7 +1651,7 @@ export async function useBlackSeaSigilDraw(gameId: string, actorUid: string, sea
     if (!seatUid) throw new Error("Seat is empty.");
     const isBot = isBotUid(seatUid);
     const isHost = data.createdBy === actorUid;
-    if (seatUid !== actorUid && !(isHost && isBot)) throw new Error("You can't act for that seat.");
+    if (!canActorControlSeat(data, actorUid, seat)) throw new Error("You can't act for that seat.");
 
     if (!hasEffect(effectsForSeat(data, seat), "discard_x_draw_x_for_friction")) {
       throw new Error("That seat cannot invoke this sigil.");
@@ -1655,7 +1741,7 @@ export async function useShatteredClayShift(
     if (!seatUid) throw new Error("Seat is empty.");
     const isBot = isBotUid(seatUid);
     const isHost = data.createdBy === actorUid;
-    if (seatUid !== actorUid && !(isHost && isBot)) throw new Error("You can't act for that seat.");
+    if (!canActorControlSeat(data, actorUid, seat)) throw new Error("You can't act for that seat.");
 
     const sigilEffect = effectsForSeat(data, seat).find((effect) => effect?.type === "discard_to_shift_value") as any;
     if (!sigilEffect) throw new Error("That seat cannot invoke this sigil.");
@@ -1717,7 +1803,7 @@ export async function setResonanceGiftSeat(
     if (!seatUid) throw new Error("Seat is empty.");
     const isBot = isBotUid(seatUid);
     const isHost = data.createdBy === actorUid;
-    if (seatUid !== actorUid && !(isHost && isBot)) throw new Error("You can't act for that seat.");
+    if (!canActorControlSeat(data, actorUid, seat)) throw new Error("You can't act for that seat.");
 
     if (!hasEffect(effectsForSeat(data, seat), "resonance_grants_ally_refill")) {
       throw new Error("That seat does not have this sigil.");
@@ -1817,7 +1903,7 @@ export async function passCardToConductor(gameId: string, actorUid: string, seat
     if (!seatUid) throw new Error("Seat is empty.");
     const isBot = isBotUid(seatUid);
     const isHost = data.createdBy === actorUid;
-    if (seatUid !== actorUid && !(isHost && isBot)) throw new Error("You can't act for that seat.");
+    if (!canActorControlSeat(data, actorUid, seat)) throw new Error("You can't act for that seat.");
 
     const alreadyPassed = Boolean(data.conductorPasses?.[seat]);
     if (alreadyPassed) throw new Error("This seat already passed a card this pulse.");
@@ -1871,7 +1957,7 @@ export async function offerExchangeCard(
     if (!fromUid) throw new Error("Seat is empty.");
     const isBot = isBotUid(fromUid);
     const isHost = data.createdBy === actorUid;
-    if (fromUid !== actorUid && !(isHost && isBot)) throw new Error("You can't act for that seat.");
+    if (!canActorControlSeat(data, actorUid, fromSeat)) throw new Error("You can't act for that seat.");
 
     const toUid = data.players?.[toSeat];
     if (!toUid) throw new Error("Recipient seat is empty.");
@@ -1916,7 +2002,7 @@ export async function returnExchangeCard(gameId: string, actorUid: string, seat:
     if (!seatUid) throw new Error("Seat is empty.");
     const isBot = isBotUid(seatUid);
     const isHost = data.createdBy === actorUid;
-    if (seatUid !== actorUid && !(isHost && isBot)) throw new Error("You can't act for that seat.");
+    if (!canActorControlSeat(data, actorUid, seat)) throw new Error("You can't act for that seat.");
 
     const hands = { ...(data.hands ?? {}) } as SeatHands;
     const myHand = [...(hands[seat] ?? [])];
@@ -1953,7 +2039,7 @@ export async function playAuxBatteryCard(gameId: string, actorUid: string, seat:
     if (!seatUid) throw new Error("Seat is empty.");
     const isBot = isBotUid(seatUid);
     const isHost = data.createdBy === actorUid;
-    if (seatUid !== actorUid && !(isHost && isBot)) throw new Error("You can't act for that seat.");
+    if (!canActorControlSeat(data, actorUid, seat)) throw new Error("You can't act for that seat.");
 
     const abilityKey = "once_per_chapter_extra_card_after_reveal";
     if (!hasEffect(effectsForSeat(data, seat), abilityKey)) {
@@ -2014,7 +2100,7 @@ export async function setPlayedCardValueChoice(
     if (!seatUid) throw new Error("Seat is empty.");
     const isBot = isBotUid(seatUid);
     const isHost = data.createdBy === actorUid;
-    if (seatUid !== actorUid && !(isHost && isBot)) throw new Error("You can't act for that seat.");
+    if (!canActorControlSeat(data, actorUid, seat)) throw new Error("You can't act for that seat.");
 
     const played = { ...(data.played ?? {}) } as any;
     const entry = played[seat];
@@ -2068,7 +2154,7 @@ export async function useBalancingScale(gameId: string, actorUid: string, seat: 
     if (!seatUid) throw new Error("Seat is empty.");
     const isBot = isBotUid(seatUid);
     const isHost = data.createdBy === actorUid;
-    if (seatUid !== actorUid && !(isHost && isBot)) throw new Error("You can't act for that seat.");
+    if (!canActorControlSeat(data, actorUid, seat)) throw new Error("You can't act for that seat.");
 
     const scaleEffect = effectsForSeat(data, seat).find((effect) => effect?.type === "post_reveal_reduce_if_top") as
       | { amount?: [number, number] }
@@ -2150,7 +2236,7 @@ export async function useTemperedCrucible(gameId: string, actorUid: string, seat
     if (!seatUid) throw new Error("Seat is empty.");
     const isBot = isBotUid(seatUid);
     const isHost = data.createdBy === actorUid;
-    if (seatUid !== actorUid && !(isHost && isBot)) throw new Error("You can't act for that seat.");
+    if (!canActorControlSeat(data, actorUid, seat)) throw new Error("You can't act for that seat.");
 
     const abilityKey = "once_per_chapter_ignore_friction_pulse";
     if (!hasEffect(effectsForSeat(data, seat), abilityKey)) {
@@ -2192,7 +2278,7 @@ export async function useSteamSigilResonance(gameId: string, actorUid: string, s
     if (!seatUid) throw new Error("Seat is empty.");
     const isBot = isBotUid(seatUid);
     const isHost = data.createdBy === actorUid;
-    if (seatUid !== actorUid && !(isHost && isBot)) throw new Error("You can't act for that seat.");
+    if (!canActorControlSeat(data, actorUid, seat)) throw new Error("You can't act for that seat.");
 
     const abilityKey = "once_per_chapter_resonance_as_steam";
     if (!hasEffect(effectsForSeat(data, seat), abilityKey)) {
@@ -2234,7 +2320,7 @@ export async function useLensOfTiphareth(gameId: string, actorUid: string, seat:
     if (!seatUid) throw new Error("Seat is empty.");
     const isBot = isBotUid(seatUid);
     const isHost = data.createdBy === actorUid;
-    if (seatUid !== actorUid && !(isHost && isBot)) throw new Error("You can't act for that seat.");
+    if (!canActorControlSeat(data, actorUid, seat)) throw new Error("You can't act for that seat.");
 
     const abilityKey = "swap_and_skip_turn";
     if (!hasEffect(effectsForSeat(data, seat), abilityKey)) {
@@ -2291,7 +2377,7 @@ export async function useHarmonicAmplifier(gameId: string, actorUid: string, sea
     if (!seatUid) throw new Error("Seat is empty.");
     const isBot = isBotUid(seatUid);
     const isHost = data.createdBy === actorUid;
-    if (seatUid !== actorUid && !(isHost && isBot)) throw new Error("You can't act for that seat.");
+    if (!canActorControlSeat(data, actorUid, seat)) throw new Error("You can't act for that seat.");
 
     const abilityKey = "pay_friction_double_manifested_total";
     if (!hasEffect(effectsForSeat(data, seat), abilityKey)) {
@@ -2343,7 +2429,7 @@ export async function useFuse(gameId: string, actorUid: string, seat: PlayerSlot
     if (!seatUid) throw new Error("Seat is empty.");
     const isBot = isBotUid(seatUid);
     const isHost = data.createdBy === actorUid;
-    if (seatUid !== actorUid && !(isHost && isBot)) throw new Error("You can't act for that seat.");
+    if (!canActorControlSeat(data, actorUid, seat)) throw new Error("You can't act for that seat.");
 
     const abilityKey = "once_per_chapter_fuse_to_zero_after_reveal";
     if (!hasEffect(effectsForSeat(data, seat), abilityKey)) {
@@ -2388,7 +2474,7 @@ export async function swapWithReservoir(gameId: string, actorUid: string, seat: 
     if (!seatUid) throw new Error("Seat is empty.");
     const isBot = isBotUid(seatUid);
     const isHost = data.createdBy === actorUid;
-    if (seatUid !== actorUid && !(isHost && isBot)) throw new Error("You can't act for that seat.");
+    if (!canActorControlSeat(data, actorUid, seat)) throw new Error("You can't act for that seat.");
 
     const reservoirKey = reservoirSlot === 2 ? ("reservoir2" as const) : ("reservoir" as const);
     const reservoir = (reservoirSlot === 2 ? data.reservoir2 : data.reservoir) ?? null;
@@ -2464,7 +2550,7 @@ export async function togglePendingDiscardSelection(gameId: string, actorUid: st
     if (!seatUid) throw new Error("Seat is empty.");
     const isBot = isBotUid(seatUid);
     const isHost = data.createdBy === actorUid;
-    if (seatUid !== actorUid && !(isHost && isBot)) throw new Error("You can't act for that seat.");
+    if (!canActorControlSeat(data, actorUid, seat)) throw new Error("You can't act for that seat.");
 
     const hand = data.hands?.[seat] ?? [];
     if (!hand.some((card) => card.id === cardId)) throw new Error("Card not found in hand.");
@@ -2521,7 +2607,7 @@ export async function confirmPendingDiscardSelection(
     if (!seatUid) throw new Error("Seat is empty.");
     const isBot = isBotUid(seatUid);
     const isHost = data.createdBy === actorUid;
-    if (seatUid !== actorUid && !(isHost && isBot)) throw new Error("You can't act for that seat.");
+    if (!canActorControlSeat(data, actorUid, seat)) throw new Error("You can't act for that seat.");
 
     const required = Math.max(0, Number(request.required) || 0);
     const optional = Math.max(0, Number(request.optional) || 0);
@@ -2558,6 +2644,103 @@ export async function confirmPendingDiscardSelection(
   });
 }
 
+export async function setPendingRecoverSelection(
+  gameId: string,
+  actorUid: string,
+  seat: PlayerSlot,
+  cardId: string | null
+) {
+  const gameRef = doc(db, "games", gameId);
+
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(gameRef);
+    if (!snap.exists()) throw new Error("Game not found.");
+    const data = snap.data() as GameDoc;
+
+    if (data.status !== "active") throw new Error("Game is not active.");
+    if (data.phase !== "play") throw new Error("Not in play phase.");
+    if (data.pulsePhase !== "recover_selection") throw new Error("No recovery selection pending.");
+
+    const pending = data.pendingRecover;
+    if (!pending || pending.reason !== "recursive_form_recover") throw new Error("No recursive recovery pending.");
+    if (!pending.seats.includes(seat)) throw new Error("This seat has no recovery selection.");
+    if (!canActorControlSeat(data, actorUid, seat)) throw new Error("You can't act for that seat.");
+
+    const discard = data.pulseDiscard ?? [];
+    const selections = { ...(pending.selections ?? {}) } as Partial<Record<PlayerSlot, string | null>>;
+    const confirmed = { ...(pending.confirmed ?? {}) } as Partial<Record<PlayerSlot, boolean>>;
+
+    if (cardId) {
+      const exists = discard.some((card) => card.id === cardId);
+      if (!exists) throw new Error("Selected card is not in discard pile.");
+      const takenByOther = pending.seats.some((otherSeat) => otherSeat !== seat && selections[otherSeat] === cardId);
+      if (takenByOther) throw new Error("That card is already selected by another player.");
+      selections[seat] = cardId;
+    } else {
+      selections[seat] = null;
+    }
+    confirmed[seat] = false;
+
+    tx.update(gameRef, {
+      pendingRecover: {
+        ...pending,
+        selections,
+        confirmed,
+      } satisfies PendingRecoverState,
+      updatedAt: serverTimestamp(),
+    });
+  });
+}
+
+export async function confirmPendingRecoverSelection(
+  gameId: string,
+  actorUid: string,
+  seat: PlayerSlot,
+  skip: boolean = false
+) {
+  const gameRef = doc(db, "games", gameId);
+
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(gameRef);
+    if (!snap.exists()) throw new Error("Game not found.");
+    const data = snap.data() as GameDoc;
+
+    if (data.status !== "active") throw new Error("Game is not active.");
+    if (data.phase !== "play") throw new Error("Not in play phase.");
+    if (data.pulsePhase !== "recover_selection") throw new Error("No recovery selection pending.");
+
+    const pending = data.pendingRecover;
+    if (!pending || pending.reason !== "recursive_form_recover") throw new Error("No recursive recovery pending.");
+    if (!pending.seats.includes(seat)) throw new Error("This seat has no recovery selection.");
+    if (!canActorControlSeat(data, actorUid, seat)) throw new Error("You can't act for that seat.");
+
+    const discard = data.pulseDiscard ?? [];
+    const selections = { ...(pending.selections ?? {}) } as Partial<Record<PlayerSlot, string | null>>;
+    const confirmed = { ...(pending.confirmed ?? {}) } as Partial<Record<PlayerSlot, boolean>>;
+
+    if (skip) {
+      selections[seat] = null;
+    } else {
+      const selectedCardId = selections[seat] ?? null;
+      if (!selectedCardId) throw new Error("Select a discard card or skip.");
+      const exists = discard.some((card) => card.id === selectedCardId);
+      if (!exists) throw new Error("Selected card is no longer in discard pile.");
+      const takenByOther = pending.seats.some((otherSeat) => otherSeat !== seat && selections[otherSeat] === selectedCardId);
+      if (takenByOther) throw new Error("Selected card is already taken.");
+    }
+    confirmed[seat] = true;
+
+    tx.update(gameRef, {
+      pendingRecover: {
+        ...pending,
+        selections,
+        confirmed,
+      } satisfies PendingRecoverState,
+      updatedAt: serverTimestamp(),
+    });
+  });
+}
+
 export async function endActions(gameId: string, actorUid: string) {
   const gameRef = doc(db, "games", gameId);
 
@@ -2568,21 +2751,31 @@ export async function endActions(gameId: string, actorUid: string) {
 
     if (data.status !== "active") throw new Error("Game is not active.");
     if (data.phase !== "play") throw new Error("Not in play phase.");
-    if (data.pulsePhase !== "actions" && data.pulsePhase !== "discard_selection") {
-      throw new Error("Not in actions/discard phase.");
+    if (data.pulsePhase !== "actions" && data.pulsePhase !== "discard_selection" && data.pulsePhase !== "recover_selection") {
+      throw new Error("Not in actions/discard/recovery phase.");
     }
 
     const isHost = data.createdBy === actorUid;
-    if (!isHost) throw new Error("Only the host can end actions (v0).");
+    const canResolveRecursiveRecover =
+      data.pulsePhase === "recover_selection" &&
+      data.pendingRecover?.reason === "recursive_form_recover" &&
+      data.pendingRecover.seats.some((seat) => canActorControlSeat(data, actorUid, seat));
+    if (!isHost && !canResolveRecursiveRecover) throw new Error("Only the host can end actions (v0).");
     if (data.exchange) throw new Error("Resolve the Communion exchange first.");
     if (data.pulsePhase === "discard_selection" && !data.pendingDiscard) {
       throw new Error("Discard selection is not initialized.");
+    }
+    if (data.pulsePhase === "recover_selection" && !data.pendingRecover) {
+      throw new Error("Recovery selection is not initialized.");
     }
 
     const pendingDiscard = data.pendingDiscard ?? null;
     const pendingReason = pendingDiscard?.reason ?? null;
     const pendingSelections = { ...(pendingDiscard?.selections ?? {}) } as Partial<Record<PlayerSlot, string[]>>;
     const pendingConfirmed = { ...(pendingDiscard?.confirmed ?? {}) } as Partial<Record<PlayerSlot, boolean>>;
+    const pendingRecover = data.pendingRecover ?? null;
+    const pendingRecoverSelections = { ...(pendingRecover?.selections ?? {}) } as Partial<Record<PlayerSlot, string | null>>;
+    const pendingRecoverConfirmed = { ...(pendingRecover?.confirmed ?? {}) } as Partial<Record<PlayerSlot, boolean>>;
 
     const requestSelection = (
       seat: PlayerSlot,
@@ -2622,6 +2815,26 @@ export async function endActions(gameId: string, actorUid: string) {
           selections: carrySelections,
           confirmed: carryConfirmed,
         } satisfies PendingDiscardState,
+        updatedAt: serverTimestamp(),
+      });
+    };
+
+    const promptRecoverSelection = (seats: PlayerSlot[]) => {
+      const normalizedSeats = seats.filter((seat, index) => seats.indexOf(seat) === index);
+      const selections: Partial<Record<PlayerSlot, string | null>> = {};
+      const confirmed: Partial<Record<PlayerSlot, boolean>> = {};
+      for (const seat of normalizedSeats) {
+        selections[seat] = pendingRecoverSelections[seat] ?? null;
+        confirmed[seat] = Boolean(pendingRecoverConfirmed[seat]);
+      }
+      tx.update(gameRef, {
+        pulsePhase: "recover_selection" as const,
+        pendingRecover: {
+          reason: "recursive_form_recover",
+          seats: normalizedSeats,
+          selections,
+          confirmed,
+        } satisfies PendingRecoverState,
         updatedAt: serverTimestamp(),
       });
     };
@@ -2876,27 +3089,58 @@ export async function endActions(gameId: string, actorUid: string) {
       if (total === terrain.min || total === terrain.max) applyPulseFriction(1);
     }
 
-    if (result === "success") {
+    const recursiveRecoverSeats: PlayerSlot[] = [];
+    if (result === "success" && discard.length > 0) {
       for (const seat of SLOTS) {
+        if (!data.players?.[seat]) continue;
         const recoverEffect = effectsForSeat(data, seat).find((effect) => effect?.type === "success_recover_from_discard") as
           | { count?: number }
           | undefined;
         if (!recoverEffect) continue;
-        const recoverCount = Math.max(1, Number(recoverEffect.count) || 0);
-        if (recoverCount <= 0 || discard.length === 0) continue;
+        const recoverCount = Math.max(0, Number(recoverEffect.count) || 0);
+        if (recoverCount > 0) recursiveRecoverSeats.push(seat);
+      }
+    }
 
-        const hand = [...(hands[seat] ?? [])];
-        const recovered: PulseCard[] = [];
-        for (let i = 0; i < recoverCount; i += 1) {
-          const card = discard.pop();
-          if (!card) break;
-          recovered.push(card);
-          const idx = discardedThisPulse.findIndex((discarded) => discarded.id === card.id);
-          if (idx >= 0) discardedThisPulse.splice(idx, 1);
+    const recoveredByRecursiveForm: Array<{ seat: PlayerSlot; card: PulseCard }> = [];
+    if (recursiveRecoverSeats.length) {
+      let needsRecoverPrompt = pendingRecover?.reason !== "recursive_form_recover";
+      const seenSelections = new Set<string>();
+      for (const seat of recursiveRecoverSeats) {
+        const isConfirmed = Boolean(pendingRecoverConfirmed[seat]);
+        if (!isConfirmed) {
+          needsRecoverPrompt = true;
+          continue;
         }
-        if (!recovered.length) continue;
-        hand.push(...recovered);
+        const selectedCardId = pendingRecoverSelections[seat] ?? null;
+        if (!selectedCardId) continue;
+        const existsInDiscard = discard.some((card) => card.id === selectedCardId);
+        const duplicated = seenSelections.has(selectedCardId);
+        if (!existsInDiscard || duplicated) {
+          needsRecoverPrompt = true;
+          break;
+        }
+        seenSelections.add(selectedCardId);
+      }
+
+      if (needsRecoverPrompt) {
+        promptRecoverSelection(recursiveRecoverSeats);
+        return;
+      }
+
+      for (const seat of recursiveRecoverSeats) {
+        const selectedCardId = pendingRecoverSelections[seat] ?? null;
+        if (!selectedCardId) continue;
+        const discardIndex = discard.findIndex((card) => card.id === selectedCardId);
+        if (discardIndex < 0) continue;
+        const [recovered] = discard.splice(discardIndex, 1);
+        if (!recovered) continue;
+        const hand = [...(hands[seat] ?? [])];
+        hand.push(recovered);
         hands[seat] = hand;
+        const idx = discardedThisPulse.findIndex((discarded) => discarded.id === recovered.id);
+        if (idx >= 0) discardedThisPulse.splice(idx, 1);
+        recoveredByRecursiveForm.push({ seat, card: recovered });
       }
     }
 
@@ -2910,6 +3154,8 @@ export async function endActions(gameId: string, actorUid: string) {
             locationId: data.locationId,
             seatSigils: data.seatSigils,
             gameMode: data.gameMode,
+            targetPlayers: data.targetPlayers,
+            players: data.players,
           },
         seat
       );
@@ -3194,6 +3440,32 @@ export async function endActions(gameId: string, actorUid: string) {
     const nextTerrainIndexForPulse = advance ? (nextIndex >= terrainDeck.length ? 0 : nextIndex) : terrainIndex;
     const nextPulseAnchorKey = pulseKey(chapter, nextStep, nextTerrainIndexForPulse, outcomeLog.length);
 
+    const seatName = (seat: PlayerSlot) => {
+      const seatUid = data.players?.[seat] ?? "";
+      return data.playerNames?.[seatUid] ?? seat.toUpperCase();
+    };
+    const recursiveFormNotice =
+      recoveredByRecursiveForm.length > 0
+        ? (() => {
+            const first = recoveredByRecursiveForm[0];
+            if (!first) return null;
+            const firstValue = first.card.suit === "prism" ? first.card.prismRange : first.card.value;
+            const recoveredLabel = `${first.card.suit.toUpperCase()} ${firstValue ?? "?"}`;
+            const extraCount = recoveredByRecursiveForm.length - 1;
+            return {
+              id: `recursive:${Date.now()}:${Math.random().toString(36).slice(2, 8)}`,
+              kind: "recursive_form_recover",
+              title: "Sigil of Recursive Form",
+              text:
+                extraCount > 0
+                  ? `${seatName(first.seat)} recovered ${recoveredLabel} from the discard pile (${extraCount} more recovery).`
+                  : `${seatName(first.seat)} recovered ${recoveredLabel} from the discard pile.`,
+              card: first.card,
+              atMs: Date.now(),
+            };
+          })()
+        : null;
+
     const basePatch: Record<string, any> = {
       golem: { hp, heat },
       pulseDeck: deck,
@@ -3222,6 +3494,8 @@ export async function endActions(gameId: string, actorUid: string) {
       chapterAbilityUsed,
       chapterGlobalUsed,
       pendingDiscard: deleteField(),
+      pendingRecover: deleteField(),
+      uiNotice: recursiveFormNotice ?? deleteField(),
       updatedAt: serverTimestamp(),
     };
 
@@ -3285,6 +3559,17 @@ export async function endActions(gameId: string, actorUid: string) {
         sigilDraftMaxPicks: deleteField(),
         pulseFrictionAnchor: null,
         frictionIgnoredPulseKey: null,
+        pseudoControllerUid:
+          targetPlayersForGame(data) === 2
+            ? ((() => {
+                const p1 = data.players?.p1 ?? null;
+                const p2 = data.players?.p2 ?? null;
+                if (data.pseudoControllerUid && (data.pseudoControllerUid === p1 || data.pseudoControllerUid === p2)) {
+                  return data.pseudoControllerUid;
+                }
+                return p1 ?? p2 ?? data.createdBy ?? null;
+              })())
+            : null,
         updatedAt: serverTimestamp(),
       };
 

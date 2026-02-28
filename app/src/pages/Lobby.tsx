@@ -11,6 +11,7 @@ export default function Lobby() {
   const uid = user?.uid ?? null;
 
   const [visibility, setVisibility] = useState<"public" | "private">("public");
+  const [targetPlayers, setTargetPlayers] = useState<2 | 3>(3);
   const [gameMode, setGameMode] = useState<GameMode>("campaign");
   const campaignPaths = useMemo(() => getAllCampaignPaths(), []);
   const [campaignVariant, setCampaignVariant] = useState<CampaignVariant>("free_choice");
@@ -61,6 +62,7 @@ export default function Lobby() {
         campaignVariant,
         campaignRandomFaculties,
         campaignPathId: campaignVariant === "preset_path" ? campaignPathId : null,
+        targetPlayers,
       });
       nav(`/game/${gameId}`);
     } catch (e) {
@@ -74,7 +76,9 @@ export default function Lobby() {
     <div className="grid gap-6">
       <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
         <div className="text-sm font-semibold text-slate-700">Create a room</div>
-        <p className="mt-1 text-sm text-slate-600">3 seats total. You can fill empty seats with bots.</p>
+        <p className="mt-1 text-sm text-slate-600">
+          Choose 2 players (plus shared pseudo-seat) or classic 3 players.
+        </p>
 
         <div className="mt-4 grid gap-4 sm:grid-cols-2">
           <div>
@@ -111,6 +115,17 @@ export default function Lobby() {
               <option value="campaign">Campaign (Sphere by Sphere)</option>
               <option value="single_location">Single location</option>
               <option value="tutorial">Tutorial (no location/faculty effects)</option>
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-slate-700">Players</label>
+            <select
+              value={targetPlayers}
+              onChange={(e) => setTargetPlayers(Number(e.target.value) as 2 | 3)}
+              className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-900 shadow-sm outline-none focus:border-slate-400"
+            >
+              <option value={3}>3 players</option>
+              <option value={2}>2 players + shared pseudo-seat</option>
             </select>
           </div>
 
@@ -192,8 +207,12 @@ export default function Lobby() {
               ) : (
                 <div className="mt-2 grid gap-2">
                   {openLobbyGames.map((g) => {
-                    const count = playerCount(g.players ?? {});
-                    const full = count >= 3;
+                    const target = g.targetPlayers ?? 3;
+                    const count =
+                      target === 2
+                        ? ["p1", "p2"].filter((seat) => Boolean((g.players ?? {})[seat as "p1" | "p2"])).length
+                        : playerCount(g.players ?? {});
+                    const full = count >= target;
                     return (
                       <button
                         key={g.id}
@@ -203,7 +222,8 @@ export default function Lobby() {
                         <div>
                           <div className="font-semibold text-slate-800">Room {g.id}</div>
                           <div className="text-xs text-slate-500">
-                            Players: {count}/3 • {full ? "Full" : "Joinable"} •{" "}
+                            Players: {count}/{target}
+                            {target === 2 ? " (+shared)" : ""} • {full ? "Full" : "Joinable"} •{" "}
                             {g.gameMode === "single_location"
                               ? "Single location"
                               : g.gameMode === "tutorial"
@@ -226,7 +246,11 @@ export default function Lobby() {
               ) : (
                 <div className="mt-2 grid gap-2">
                   {openActiveGames.map((g) => {
-                    const count = playerCount(g.players ?? {});
+                    const target = g.targetPlayers ?? 3;
+                    const count =
+                      target === 2
+                        ? ["p1", "p2"].filter((seat) => Boolean((g.players ?? {})[seat as "p1" | "p2"])).length
+                        : playerCount(g.players ?? {});
                     const chapter = g.chapter ?? 1;
                     const step = g.step ?? 1;
                     return (
@@ -238,7 +262,8 @@ export default function Lobby() {
                         <div>
                           <div className="font-semibold text-slate-800">Game {g.id}</div>
                           <div className="text-xs text-slate-500">
-                            Players: {count}/3 • Sphere {chapter} • Pulse {step} •{" "}
+                            Players: {count}/{target}
+                            {target === 2 ? " (+shared)" : ""} • Sphere {chapter} • Pulse {step} •{" "}
                             {g.gameMode === "single_location"
                               ? "Single location"
                               : g.gameMode === "tutorial"

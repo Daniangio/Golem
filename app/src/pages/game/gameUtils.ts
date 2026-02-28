@@ -7,6 +7,10 @@ export function isBotUid(uid: string | undefined | null): boolean {
   return Boolean(uid && uid.startsWith("bot:"));
 }
 
+export function isSharedPseudoUid(uid: string | undefined | null): boolean {
+  return Boolean(uid && uid.startsWith("shared:"));
+}
+
 export function seatLabel(seat: PlayerSlot): string {
   return seat.toUpperCase();
 }
@@ -50,5 +54,10 @@ export function canControlSeat(game: GameSummary, actorUid: string, seat: Player
   const uid = game.players?.[seat];
   if (!uid) return false;
   if (uid === actorUid) return true;
+  if (isSharedPseudoUid(uid)) {
+    const controller = game.pseudoControllerUid ?? game.createdBy ?? null;
+    if (controller === actorUid) return true;
+    return Boolean(game.createdBy === actorUid && controller && isBotUid(controller));
+  }
   return Boolean(game.createdBy === actorUid && isBotUid(uid));
 }

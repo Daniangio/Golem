@@ -27,7 +27,10 @@ import {
   setPlayedCardValueChoice,
   togglePendingDiscardSelection,
   confirmPendingDiscardSelection,
+  setPendingRecoverSelection,
+  confirmPendingRecoverSelection,
   setPartPick,
+  setPseudoController,
   startGame,
   subscribeGame,
   swapWithReservoir,
@@ -55,8 +58,8 @@ import {
   AssignedFacultyPanel,
   type AssignedSigilDetail,
 } from "../components/game/AssignedFacultyPanel";
-import { CommunionExchangePanel, PlayerBottomPanel } from "../components/game/PlayerBottomPanel";
-import { DiscardModal, OutcomeHistoryModal, TerrainDeckModal } from "../components/game/GameModals";
+import { PlayerBottomPanel } from "../components/game/PlayerBottomPanel";
+import { DiscardModal, GameNoticeToast, OutcomeHistoryModal, TerrainDeckModal } from "../components/game/GameModals";
 import type { PlayerSlot, Players } from "../types";
 import { bestFitSelection, pulseCardValueOptions } from "../lib/game/scoring";
 import { GameLobbyView } from "./game/GameLobbyView";
@@ -72,6 +75,7 @@ import {
   groupSeatsByValue,
   imgSrc,
   isBotUid,
+  isSharedPseudoUid,
   playerLabel,
   seatLabel,
   seatOrder,
@@ -99,11 +103,13 @@ export default function Game() {
   const [inviteUid, setInviteUid] = useState("");
   const [selectedCardId, setSelectedCardId] = useState<string | null>(null);
   const [showDiscardModal, setShowDiscardModal] = useState(false);
-  const [discardModalMode, setDiscardModalMode] = useState<"inspect" | "play_from_discard">("inspect");
+  const [discardModalMode, setDiscardModalMode] = useState<"inspect" | "play_from_discard" | "recover_from_discard">("inspect");
   const [showLogModal, setShowLogModal] = useState(false);
   const [showTerrainModal, setShowTerrainModal] = useState(false);
   const [showFacultyModal, setShowFacultyModal] = useState(false);
   const [showLocationInfoModal, setShowLocationInfoModal] = useState(false);
+  const [activeNotice, setActiveNotice] = useState<GameSummary["uiNotice"] | null>(null);
+  const [dismissedNoticeIds, setDismissedNoticeIds] = useState<string[]>([]);
   const [handActionMode, setHandActionMode] = useState<"black_sea" | "shattered_clay" | null>(null);
   const [handActionSelectedIds, setHandActionSelectedIds] = useState<string[]>([]);
   const [locationCarouselIndex, setLocationCarouselIndex] = useState(0);
@@ -142,10 +148,14 @@ export default function Game() {
   }, [game?.id, game?.chapter, game?.phase]);
 
   const players = (game?.players ?? {}) as Players;
+  const targetPlayers = (game?.targetPlayers ?? 3) as 2 | 3;
   const mySlot = useMemo(() => (uid && game ? getMySlot(players, uid) : null), [uid, game, players]);
   const isHost = Boolean(uid && game?.createdBy && uid === game.createdBy);
   const isPlayer = Boolean(mySlot);
-  const full = playerCount(players) >= 3;
+  const full =
+    targetPlayers === 2
+      ? Boolean(players.p1) && Boolean(players.p2)
+      : playerCount(players) >= 3;
 
   const [activeSeat, setActiveSeat] = useState<PlayerSlot | null>(null); // the seat we're viewing / selecting
   useEffect(() => {
@@ -429,6 +439,39 @@ export default function Game() {
     setHandActionSelectedIds((prev) => prev.filter((id) => validIds.has(id)));
   }, [handActionMode, activeSeat, game]);
 
+  useEffect(() => {
+    if (discardModalMode !== "recover_from_discard") return;
+    if (game?.pulsePhase === "recover_selection") return;
+    setShowDiscardModal(false);
+    setDiscardModalMode("inspect");
+  }, [discardModalMode, game?.pulsePhase]);
+
+  useEffect(() => {
+    if (!game?.uiNotice) {
+      setActiveNotice(null);
+      return;
+    }
+    if (dismissedNoticeIds.includes(game.uiNotice.id)) return;
+    const noticeAgeMs = Date.now() - Number(game.uiNotice.atMs ?? Date.now());
+    if (noticeAgeMs > 15000) return;
+    if (activeNotice?.id === game.uiNotice.id) return;
+    setActiveNotice(game.uiNotice);
+  }, [game?.uiNotice, activeNotice?.id, dismissedNoticeIds]);
+
+  useEffect(() => {
+    if (!activeNotice) return;
+    const noticeId = activeNotice.id;
+    const timer = window.setTimeout(() => {
+      setActiveNotice(null);
+      setDismissedNoticeIds((prev) => {
+        if (prev.includes(noticeId)) return prev;
+        const next = [...prev, noticeId];
+        return next.length > 60 ? next.slice(next.length - 60) : next;
+      });
+    }, 3000);
+    return () => window.clearTimeout(timer);
+  }, [activeNotice]);
+
   if (err) {
     return (
       <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900">
@@ -454,6 +497,7 @@ export default function Game() {
         isPlayer={isPlayer}
         busy={busy}
         full={full}
+        targetPlayers={targetPlayers}
         msg={msg}
         inviteUid={inviteUid}
         onInviteUidChange={setInviteUid}
@@ -545,7 +589,12 @@ export default function Game() {
   const selectedSeat = viewSeat;
   const selectedUid = players[selectedSeat] ?? "";
   const selectedHandRaw = hands[selectedSeat] ?? [];
-  const canSeeSelectedHand = Boolean(uid && selectedUid && canControlSeat(game, uid, selectedSeat));
+  const sharedSeatPublicView =
+    targetPlayers === 2 &&
+    selectedSeat === "p3" &&
+    isSharedPseudoUid(selectedUid) &&
+    Boolean(uid && (players.p1 === uid || players.p2 === uid));
+  const canSeeSelectedHand = Boolean(uid && selectedUid && (canControlSeat(game, uid, selectedSeat) || sharedSeatPublicView));
   const selectedHand = canSeeSelectedHand ? selectedHandRaw : [];
 
   const selectedCard = selectedHand.find((c) => c.id === selectedCardId) ?? null;
@@ -598,6 +647,28 @@ export default function Game() {
     isDiscardSelectionPhase &&
     pendingDiscardSeats.length > 0 &&
     pendingDiscardSeats.every((seat) => Boolean(pendingDiscard?.confirmed?.[seat]));
+  const isRecoverSelectionPhase = pulsePhase === "recover_selection";
+  const pendingRecover = game.pendingRecover ?? null;
+  const pendingRecoverSeats =
+    pendingRecover?.reason === "recursive_form_recover" ? pendingRecover.seats : [];
+  const pendingRecoverSelectedId =
+    pendingRecover?.reason === "recursive_form_recover" ? (pendingRecover.selections?.[selectedSeat] ?? null) : null;
+  const pendingRecoverConfirmed = Boolean(
+    pendingRecover?.reason === "recursive_form_recover" && pendingRecover?.confirmed?.[selectedSeat]
+  );
+  const allPendingRecoverConfirmed =
+    isRecoverSelectionPhase &&
+    pendingRecoverSeats.length > 0 &&
+    pendingRecoverSeats.every((seat) => Boolean(pendingRecover?.confirmed?.[seat]));
+  const pendingRecoverSelectedCard =
+    pendingRecoverSelectedId ? discardAll.find((card) => card.id === pendingRecoverSelectedId) ?? null : null;
+  const pendingRecoverSelectedLabel = pendingRecoverSelectedCard
+    ? `${pendingRecoverSelectedCard.suit.toUpperCase()} ${
+        pendingRecoverSelectedCard.suit === "prism"
+          ? pendingRecoverSelectedCard.prismRange ?? "?"
+          : pendingRecoverSelectedCard.value ?? "?"
+      }`
+    : null;
 
   const selectedName = selectedUid ? playerLabel(selectedUid, game.playerNames) : "Empty";
   const selectedPartId = game.partPicks?.[selectedSeat] ?? null;
@@ -633,6 +704,13 @@ export default function Game() {
   const canActForSelected = Boolean(uid && canControlSeat(game, uid, selectedSeat));
   const canManagePendingDiscardForSelected = Boolean(
     isDiscardSelectionPhase && pendingDiscardRequest && uid && canControlSeat(game, uid, selectedSeat)
+  );
+  const canManagePendingRecoverForSelected = Boolean(
+    isRecoverSelectionPhase &&
+      pendingRecover?.reason === "recursive_form_recover" &&
+      pendingRecoverSeats.includes(selectedSeat) &&
+      uid &&
+      canControlSeat(game, uid, selectedSeat)
   );
   const effectsForSeat = (seat: PlayerSlot): any[] => {
     if (game.gameMode === "tutorial") return [];
@@ -919,6 +997,14 @@ export default function Game() {
     }
     return `${reasonLabel}: ${remaining} seat${remaining === 1 ? "" : "s"} still choosing.`;
   })();
+  const recoverStatusLine = (() => {
+    if (!isRecoverSelectionPhase || pendingRecover?.reason !== "recursive_form_recover") return null;
+    const remaining = pendingRecoverSeats.filter((seat) => !pendingRecover?.confirmed?.[seat]).length;
+    if (remaining <= 0) {
+      return isHost ? "Recursive Form: ready to resolve." : "Recursive Form: waiting for host.";
+    }
+    return `Recursive Form: ${remaining} seat${remaining === 1 ? "" : "s"} still choosing.`;
+  })();
 
   const exchangeRecipients = (() => {
     if (!exchange || exchange.status !== "awaiting_offer") return [];
@@ -926,6 +1012,44 @@ export default function Game() {
       const u = players[s];
       return { seat: s, name: u ? playerLabel(u, game.playerNames) : "Empty", enabled: Boolean(u) };
     });
+  })();
+  const exchangeCardActions = (() => {
+    if (!exchangePending || !exchange || !selectedCardId) return [] as Array<{
+      key: string;
+      label: string;
+      onClick: () => void;
+      disabled?: boolean;
+      className?: string;
+    }>;
+    if (exchange.status === "awaiting_offer" && canOfferExchange) {
+      const canUseCard = Boolean(exchange.from && (hands[exchange.from] ?? []).some((c) => c.id === selectedCardId));
+      return exchangeRecipients.map((recipient) => ({
+        key: `offer-${recipient.seat}`,
+        label: `Offer to ${recipient.name}`,
+        onClick: () =>
+          void guarded(async () => {
+            if (!uid || !gameId || !exchange?.from) return;
+            await offerExchangeCard(gameId, uid, exchange.from, recipient.seat, selectedCardId);
+          }),
+        disabled: !recipient.enabled || !canUseCard,
+      }));
+    }
+    if (exchange.status === "awaiting_return" && canReturnExchange && exchange.to) {
+      const canUseCard = Boolean((hands[exchange.to] ?? []).some((c) => c.id === selectedCardId));
+      return [
+        {
+          key: "return",
+          label: "Return card",
+          onClick: () =>
+            void guarded(async () => {
+            if (!uid || !gameId || !exchange?.to) return;
+            await returnExchangeCard(gameId, uid, exchange.to, selectedCardId);
+          }),
+        disabled: !canUseCard,
+      },
+      ];
+    }
+    return [];
   })();
 
   const selectedAbilityUsed = game.chapterAbilityUsed?.[selectedSeat] ?? {};
@@ -972,6 +1096,15 @@ export default function Game() {
   const locationImageUrl = imgSrc(location?.image ?? null);
   const showBottomHandPanel =
     game.phase !== "choose_location" && game.phase !== "choose_parts" && game.phase !== "choose_sigils";
+  const isTwoPlayerSharedRun = targetPlayers === 2 && isSharedPseudoUid(players.p3 ?? null);
+  const pseudoControllerUid = game.pseudoControllerUid ?? game.createdBy ?? null;
+  const pseudoControllerName = pseudoControllerUid
+    ? playerLabel(pseudoControllerUid, game.playerNames)
+    : "Unassigned";
+  const pseudoControllerOptions = (["p1", "p2"] as PlayerSlot[])
+    .map((seat) => players[seat])
+    .filter(Boolean) as string[];
+  const canSetPseudoController = Boolean(uid && isTwoPlayerSharedRun && pseudoControllerOptions.includes(uid));
   const layoutRowsClass = isMobileLayout
     ? showBottomHandPanel
       ? "grid-rows-[7%_6%_minmax(0,1fr)_23%]"
@@ -1008,7 +1141,53 @@ export default function Game() {
     });
   }
 
-  const bottomMessage = isDiscardSelectionPhase ? (
+  const bottomMessage = isRecoverSelectionPhase ? (
+    pendingRecover?.reason === "recursive_form_recover" && pendingRecoverSeats.includes(selectedSeat) ? (
+      <div className="space-y-2">
+        <div className="text-[11px] font-semibold text-white/80">
+          Sigil of Recursive Form: choose 1 card from the discard pile to recover, or skip.
+        </div>
+        <div className="text-[11px] text-white/65">
+          {pendingRecoverSelectedLabel ? `Selected card: ${pendingRecoverSelectedLabel}` : "No card selected."}
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={() => {
+              setDiscardModalMode("recover_from_discard");
+              setShowDiscardModal(true);
+            }}
+            disabled={busy || !canManagePendingRecoverForSelected}
+            className="rounded-2xl bg-violet-400 px-3 py-1.5 text-[11px] font-extrabold text-slate-950 shadow-sm disabled:opacity-40"
+          >
+            Open discard pile
+          </button>
+          <button
+            type="button"
+            onClick={() =>
+              void guarded(async () => {
+                if (!uid || !gameId) return;
+                await confirmPendingRecoverSelection(gameId, uid, selectedSeat, true);
+                await endActions(gameId, uid);
+                setShowDiscardModal(false);
+                setDiscardModalMode("inspect");
+              })
+            }
+            disabled={busy || !canManagePendingRecoverForSelected || pendingRecoverConfirmed}
+            className="rounded-2xl bg-white/20 px-3 py-1.5 text-[11px] font-extrabold text-white shadow-sm disabled:opacity-40"
+          >
+            Skip
+          </button>
+        </div>
+      </div>
+    ) : (
+      <div className="text-[11px] text-white/60">
+        {allPendingRecoverConfirmed
+          ? "All recursive recover choices are confirmed. Resolving…"
+          : "Wait while the recursive recovery is decided."}
+      </div>
+    )
+  ) : isDiscardSelectionPhase ? (
     pendingDiscardRequest ? (
       <div className="space-y-2">
         <div className="text-[11px] font-semibold text-white/80">{pendingDiscardRequest.label}</div>
@@ -1078,29 +1257,15 @@ export default function Game() {
       </div>
     )
   ) : exchangePending ? (
-    <CommunionExchangePanel
-      exchange={exchange as any}
-      pending={exchangePending}
-      canOffer={canOfferExchange}
-      canReturn={canReturnExchange}
-      recipients={exchangeRecipients}
-      fromHand={exchange?.from ? (hands[exchange.from] ?? []) : []}
-      toHand={exchange?.to ? (hands[exchange.to] ?? []) : []}
-      selectedCardId={selectedCardId}
-      busy={busy}
-      onOfferTo={(to, cardId) =>
-        void guarded(async () => {
-          if (!uid || !gameId || !exchange?.from) return;
-          await offerExchangeCard(gameId, uid, exchange.from, to, cardId);
-        })
-      }
-      onReturn={(cardId) =>
-        void guarded(async () => {
-          if (!uid || !gameId || !exchange?.to) return;
-          await returnExchangeCard(gameId, uid, exchange.to, cardId);
-        })
-      }
-    />
+    <div className="text-[11px] text-white/75">
+      {exchange?.status === "awaiting_offer"
+        ? canOfferExchange
+          ? "The Communion of Vessels: select a card, then choose who receives it using the button above the selected card."
+          : "The Communion of Vessels: wait while the offering player chooses a card."
+        : canReturnExchange
+          ? "The Communion of Vessels: select a card, then use Return above the selected card."
+          : "The Communion of Vessels: wait while the recipient returns a card."}
+    </div>
   ) : handActionMode === "black_sea" ? (
     <div className="space-y-2">
       <div className="text-[11px] font-semibold text-white/80">
@@ -1201,9 +1366,24 @@ export default function Game() {
         </button>
       </div>
     </div>
+  ) : canUseBlackSeaSigilFromSelected && !handActionModeActive ? (
+    <div className="space-y-2">
+      <div className="text-[11px] font-semibold text-white/80">
+        Sigil of the Black Sea: discard any number of cards, then draw the same amount (+1 Friction).
+      </div>
+      <button
+        type="button"
+        onClick={() => {
+          setSelectedCardId(null);
+          setHandActionSelectedIds([]);
+          setHandActionMode("black_sea");
+        }}
+        className="rounded-2xl bg-sky-400 px-3 py-1.5 text-[11px] font-extrabold text-slate-950 shadow-sm"
+      >
+        Draw
+      </button>
+    </div>
   ) : null;
-  const showFacultyInBottomActionPanel = !isMobileLayout && !isDiscardSelectionPhase && !exchangePending;
-
   return (
     <div className="h-full w-full text-white">
       <div className={`grid h-full gap-1 ${layoutRowsClass}`}>
@@ -1252,6 +1432,8 @@ export default function Game() {
             <div className={`min-w-0 flex-1 truncate font-semibold text-white/70 ${isMobileLayout ? "text-[10px]" : "text-[11px]"}`}>
               {msg ? (
                 <span className="text-rose-200">{msg}</span>
+              ) : recoverStatusLine ? (
+                <span className="text-violet-100/95">{recoverStatusLine}</span>
               ) : discardStatusLine ? (
                 <span className="text-amber-100/90">{discardStatusLine}</span>
               ) : exchangeStatusLine ? (
@@ -1260,6 +1442,37 @@ export default function Game() {
                 `Phase: ${game.phase ?? "—"}`
               )}
             </div>
+            {isTwoPlayerSharedRun && (
+              <div className="flex shrink-0 items-center gap-1 rounded-xl bg-white/5 px-2 py-1 text-[10px] ring-1 ring-white/10">
+                <span className="text-white/60">P3:</span>
+                {canSetPseudoController ? (
+                  pseudoControllerOptions.map((optionUid) => {
+                    const active = optionUid === pseudoControllerUid;
+                    return (
+                      <button
+                        key={optionUid}
+                        type="button"
+                        onClick={() =>
+                          void guarded(async () => {
+                            if (!uid || !gameId) return;
+                            await setPseudoController(gameId, uid, optionUid);
+                          })
+                        }
+                        disabled={busy}
+                        className={`rounded-full px-2 py-0.5 font-extrabold ${
+                          active ? "bg-emerald-400 text-slate-950" : "bg-white/10 text-white/80 hover:bg-white/20"
+                        } disabled:opacity-40`}
+                        title={`Set shared seat controller to ${playerLabel(optionUid, game.playerNames)}`}
+                      >
+                        {playerLabel(optionUid, game.playerNames)}
+                      </button>
+                    );
+                  })
+                ) : (
+                  <span className="font-semibold text-white/85">{pseudoControllerName}</span>
+                )}
+              </div>
+            )}
             {isMobileLayout && location?.rule ? (
               <button
                 type="button"
@@ -1479,6 +1692,15 @@ export default function Game() {
                     playerNames={game.playerNames}
                     isOwnOrControlledSeat={(seat) => {
                       const seatUid = players[seat] ?? "";
+                      if (
+                        targetPlayers === 2 &&
+                        seat === "p3" &&
+                        isSharedPseudoUid(seatUid) &&
+                        uid &&
+                        (players.p1 === uid || players.p2 === uid)
+                      ) {
+                        return true;
+                      }
                       return Boolean(uid && (seatUid === uid || (isHost && isBotUid(seatUid) && activeSeat === seat)));
                     }}
                     canSetValueSeat={(seat) =>
@@ -1618,6 +1840,9 @@ export default function Game() {
                         await setResonanceGiftSeat(gameId, uid, seat, target);
                       })
                     }
+                    tablePart={selectedPartDetail}
+                    tablePartToken={selectedPartToken}
+                    tableSigils={selectedSeatSigilDetails}
                   />
                 )}
               </div>
@@ -1689,6 +1914,7 @@ export default function Game() {
                 await useLensOfTiphareth(gameId, uid, actingSeat, selectedCardId);
               })
             }
+            selectedCardActionButtons={exchangeCardActions}
             handCount={selectedHandRaw.length}
             busy={busy}
             icons={
@@ -1727,24 +1953,6 @@ export default function Game() {
                     title="Manifest from discard (once per Sphere)"
                   >
                     ✶ Discard
-                  </button>
-                )}
-                {canUseBlackSeaSigilFromSelected && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedCardId(null);
-                      setHandActionSelectedIds([]);
-                      setHandActionMode((prev) => (prev === "black_sea" ? null : "black_sea"));
-                    }}
-                    className={`flex h-9 items-center gap-1 rounded-2xl px-2 text-[11px] font-extrabold ring-1 ${
-                      handActionMode === "black_sea"
-                        ? "bg-sky-300 text-slate-950 ring-sky-100/60"
-                        : "bg-sky-400/75 text-slate-950 ring-sky-200/30 hover:bg-sky-300"
-                    }`}
-                    title="Discard any number, draw equal (+1 Friction)"
-                  >
-                    ≋ Draw
                   </button>
                 )}
                 {canUseShatteredClayFromSelected && (
@@ -1803,16 +2011,6 @@ export default function Game() {
                   📜 <span className="font-semibold text-white/70">{outcomeLog.length}</span>
                 </button>
               </>
-            }
-            desktopIdlePanel={
-              showFacultyInBottomActionPanel ? (
-                <AssignedFacultyPanel
-                  part={selectedPartDetail}
-                  token={selectedPartToken}
-                  sigils={selectedSeatSigilDetails}
-                  compact
-                />
-              ) : undefined
             }
             hiddenNote={
               !canSeeSelectedHand && selectedUid ? (
@@ -1903,8 +2101,38 @@ export default function Game() {
         }}
         discardAll={discardAll}
         lastDiscarded={lastDiscarded}
-        selectable={discardModalMode === "play_from_discard"}
-        selectionLabel="Tap a card to manifest it"
+        selectable={
+          discardModalMode === "play_from_discard" ||
+          (discardModalMode === "recover_from_discard" && canManagePendingRecoverForSelected)
+        }
+        selectionLabel={
+          discardModalMode === "play_from_discard"
+            ? "Tap a card to manifest it"
+            : discardModalMode === "recover_from_discard"
+              ? "Tap a card, then confirm with the white button above it"
+              : "Select from discard"
+        }
+        selectedCardId={discardModalMode === "recover_from_discard" ? pendingRecoverSelectedId : null}
+        confirmSelectedLabel={discardModalMode === "recover_from_discard" ? "Recover" : undefined}
+        confirmSelectedDisabled={
+          discardModalMode !== "recover_from_discard" ||
+          busy ||
+          !canManagePendingRecoverForSelected ||
+          pendingRecoverConfirmed ||
+          !pendingRecoverSelectedId
+        }
+        onConfirmSelected={
+          discardModalMode === "recover_from_discard"
+            ? () =>
+                void guarded(async () => {
+                  if (!uid || !gameId) return;
+                  await confirmPendingRecoverSelection(gameId, uid, selectedSeat, false);
+                  await endActions(gameId, uid);
+                  setShowDiscardModal(false);
+                  setDiscardModalMode("inspect");
+                })
+            : undefined
+        }
         onSelectCard={
           discardModalMode === "play_from_discard"
             ? (cardId) =>
@@ -1914,7 +2142,18 @@ export default function Game() {
                   setShowDiscardModal(false);
                   setDiscardModalMode("inspect");
                 })
-            : undefined
+            : discardModalMode === "recover_from_discard" && canManagePendingRecoverForSelected
+              ? (cardId) =>
+                  void guarded(async () => {
+                    if (!uid || !gameId) return;
+                    await setPendingRecoverSelection(
+                      gameId,
+                      uid,
+                      selectedSeat,
+                      pendingRecoverSelectedId === cardId ? null : cardId
+                    );
+                  })
+              : undefined
         }
       />
 
@@ -1930,6 +2169,8 @@ export default function Game() {
         onClose={() => setShowLogModal(false)}
         outcomeLog={outcomeLog}
       />
+
+      <GameNoticeToast notice={activeNotice} />
 
       {/* Communion exchange now lives in the bottom hand panel (non-blocking). */}
     </div>

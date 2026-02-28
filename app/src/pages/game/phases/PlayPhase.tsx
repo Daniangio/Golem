@@ -3,6 +3,8 @@ import { AnimatedTerrainCard } from "../../../components/game/AnimatedTerrainCar
 import { CardBack } from "../../../components/game/CardBack";
 import { LocationShowcase } from "../../../components/game/LocationShowcase";
 import { DeckStub, PulseCardMini, PulseCardPreview, TerrainCompactCard } from "../../../components/game/PulseCards";
+import { TableAbilityCardsRow } from "../../../components/game/TableAbilityCardsRow";
+import type { AssignedPartDetail, AssignedSigilDetail, FacultyToken } from "../../../components/game/AssignedFacultyPanel";
 import { seatLabel, playerLabel } from "../gameUtils";
 import type { GameDoc, PlayerSlot, Players, PulseCard, TerrainCard } from "../../../types";
 
@@ -74,6 +76,9 @@ type PlayPhaseProps = {
   onFuse: (seat: PlayerSlot) => void;
   onAmplify: (seat: PlayerSlot) => void;
   onSetResonanceGiftSeat: (seat: PlayerSlot, target: PlayerSlot | null) => void;
+  tablePart: AssignedPartDetail | null;
+  tablePartToken?: FacultyToken | null;
+  tableSigils: AssignedSigilDetail[];
 };
 
 const SLOTS: PlayerSlot[] = ["p1", "p2", "p3"];
@@ -132,6 +137,9 @@ export function PlayPhase({
   onFuse,
   onAmplify,
   onSetResonanceGiftSeat,
+  tablePart,
+  tablePartToken,
+  tableSigils,
 }: PlayPhaseProps) {
   const [actionsSeat, setActionsSeat] = useState<PlayerSlot | null>(null);
 
@@ -455,26 +463,33 @@ export function PlayPhase({
           {playedCardsPanel}
         </div>
       ) : (
-        <div className="relative flex h-full min-w-max items-start gap-2">
-          {locationName && locationRule ? (
-            <LocationShowcase
-              locationName={locationName}
-              locationRule={locationRule}
-              locationImageUrl={locationImageUrl}
-              locationTokens={locationTokens}
-              spark={spark}
-              friction={friction}
-              sparkAnimClassName={sparkAnimClassName}
-              frictionAnimClassName={frictionAnimClassName}
-            />
-          ) : (
-            <div className="w-[260px] shrink-0 rounded-2xl bg-slate-950/85 p-3 text-sm text-white/70 ring-1 ring-white/10">
-              No location chosen yet.
+        <div className="relative flex h-full min-w-max items-stretch gap-2">
+          <div className="flex shrink-0 items-start gap-2">
+            {locationName && locationRule ? (
+              <LocationShowcase
+                locationName={locationName}
+                locationRule={locationRule}
+                locationImageUrl={locationImageUrl}
+                locationTokens={locationTokens}
+                spark={spark}
+                friction={friction}
+                sparkAnimClassName={sparkAnimClassName}
+                frictionAnimClassName={frictionAnimClassName}
+              />
+            ) : (
+              <div className="w-[260px] shrink-0 rounded-2xl bg-slate-950/85 p-3 text-sm text-white/70 ring-1 ring-white/10">
+                No location chosen yet.
+              </div>
+            )}
+          </div>
+          <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2">
+            <div className="flex min-h-0 items-start gap-2">
+              {deckPanel}
+              {reservoirPanel}
+              {playedCardsPanel}
             </div>
-          )}
-          {deckPanel}
-          {reservoirPanel}
-          {playedCardsPanel}
+            <TableAbilityCardsRow part={tablePart} token={tablePartToken} sigils={tableSigils} />
+          </div>
         </div>
       )}
 

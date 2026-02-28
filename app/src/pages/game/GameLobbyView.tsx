@@ -1,5 +1,5 @@
 import React from "react";
-import { playerCount, type GameSummary } from "../../lib/firestoreGames";
+import type { GameSummary } from "../../lib/firestoreGames";
 import type { Players } from "../../types";
 import { SLOTS, isBotUid, playerLabel, seatLabel } from "./gameUtils";
 
@@ -13,6 +13,7 @@ type GameLobbyViewProps = {
   isPlayer: boolean;
   busy: boolean;
   full: boolean;
+  targetPlayers: 2 | 3;
   msg: string | null;
   inviteUid: string;
   onInviteUidChange: (value: string) => void;
@@ -37,6 +38,7 @@ export function GameLobbyView({
   isPlayer,
   busy,
   full,
+  targetPlayers,
   msg,
   inviteUid,
   onInviteUidChange,
@@ -51,6 +53,8 @@ export function GameLobbyView({
   onRemoveBot,
 }: GameLobbyViewProps) {
   const shareUrl = `${window.location.origin}/game/${gameId}`;
+  const lobbySlots = targetPlayers === 2 ? (["p1", "p2"] as const) : SLOTS;
+  const joinedCount = lobbySlots.filter((slot) => Boolean(players[slot])).length;
 
   return (
     <div className="h-full overflow-visible">
@@ -121,11 +125,14 @@ export function GameLobbyView({
         </div>
 
         <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-          <div className="text-sm font-semibold text-slate-700">Players ({playerCount(players)}/3)</div>
+          <div className="text-sm font-semibold text-slate-700">
+            Players ({joinedCount}/{targetPlayers}{targetPlayers === 2 ? " + shared" : ""})
+          </div>
           <div className="mt-3 grid gap-2">
-            {SLOTS.map((slot) => {
+            {(targetPlayers === 2 ? (["p1", "p2", "p3"] as const) : SLOTS).map((slot) => {
               const playerUid = players[slot];
               const bot = isBotUid(playerUid);
+              const sharedSeat = targetPlayers === 2 && slot === "p3";
               return (
                 <div
                   key={slot}
@@ -138,12 +145,13 @@ export function GameLobbyView({
                     {playerUid ? (
                       <span className="font-semibold text-slate-900">{playerLabel(playerUid, game.playerNames)}</span>
                     ) : (
-                      <span className="text-slate-500">Empty</span>
+                      <span className="text-slate-500">{sharedSeat ? "Auto shared seat (at game start)" : "Empty"}</span>
                     )}
                     {playerUid && bot && <span className="text-xs text-slate-500">(bot)</span>}
+                    {sharedSeat && <span className="text-xs text-slate-500">(shared)</span>}
                     {playerUid && uid && playerUid === uid && <span className="text-xs font-semibold text-emerald-700">you</span>}
                   </div>
-                  {isHost && playerUid && bot && (
+                  {isHost && playerUid && bot && targetPlayers !== 2 && (
                     <button
                       onClick={() => onRemoveBot(playerUid)}
                       disabled={busy}

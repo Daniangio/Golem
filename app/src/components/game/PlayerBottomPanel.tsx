@@ -26,6 +26,7 @@ export function PlayerBottomPanel({
   icons,
   desktopIdlePanel,
   hiddenNote,
+  selectedCardActionButtons,
 }: {
   mobileLayout?: boolean;
   seatTag: string;
@@ -49,8 +50,17 @@ export function PlayerBottomPanel({
   icons?: React.ReactNode;
   desktopIdlePanel?: React.ReactNode;
   hiddenNote?: React.ReactNode;
+  selectedCardActionButtons?: Array<{
+    key: string;
+    label: string;
+    onClick: () => void;
+    disabled?: boolean;
+    className?: string;
+  }>;
 }) {
   const mobileCardClass = "h-[102px] w-[68px] rounded-xl";
+  const topCardActionWidthClass = mobileLayout ? "w-[68px]" : "w-[80px]";
+  const topCardActionBtnClass = `${topCardActionWidthClass} rounded-xl bg-white px-1.5 py-0.5 text-[9px] font-extrabold text-slate-900 shadow disabled:opacity-40`;
 
   const cardsRow = (
     <div className="relative min-h-0 overflow-x-visible overflow-y-visible">
@@ -67,35 +77,50 @@ export function PlayerBottomPanel({
                   className={mobileLayout ? mobileCardClass : ""}
                   onClick={() => onToggleSelectCard(c.id)}
                 />
-                {selected && canPlaySelected && (
-                  <button
-                    type="button"
-                    onClick={onPlaySelected}
-                    disabled={busy}
-                    className="absolute left-1/2 top-0 -translate-x-1/2 rounded-full bg-white px-3 py-1 text-[11px] font-extrabold text-slate-900 shadow disabled:opacity-40"
-                  >
-                    {playButtonLabel}
-                  </button>
-                )}
-                {selected && canOverflowSelected && (
-                  <button
-                    type="button"
-                    onClick={onOverflowSelected}
-                    disabled={busy}
-                    className="absolute left-1/2 top-0 -translate-x-1/2 rounded-full bg-emerald-400 px-3 py-1 text-[11px] font-extrabold text-slate-950 shadow disabled:opacity-40"
-                  >
-                    Overflow
-                  </button>
-                )}
-                {selected && canSwapSkipSelected && (
-                  <button
-                    type="button"
-                    onClick={onSwapSkipSelected}
-                    disabled={busy}
-                    className="absolute left-1/2 top-0 -translate-x-1/2 rounded-full bg-amber-300 px-3 py-1 text-[11px] font-extrabold text-slate-950 shadow disabled:opacity-40"
-                  >
-                    Transmute
-                  </button>
+                {selected && (
+                  <div className="absolute left-1/2 top-6 z-20 flex -translate-x-1/2 -translate-y-full flex-col-reverse items-center gap-1">
+                    {canPlaySelected && (
+                      <button
+                        type="button"
+                        onClick={onPlaySelected}
+                        disabled={busy}
+                        className={topCardActionBtnClass}
+                      >
+                        {playButtonLabel}
+                      </button>
+                    )}
+                    {canOverflowSelected && (
+                      <button
+                        type="button"
+                        onClick={onOverflowSelected}
+                        disabled={busy}
+                        className={topCardActionBtnClass}
+                      >
+                        Overflow
+                      </button>
+                    )}
+                    {canSwapSkipSelected && (
+                      <button
+                        type="button"
+                        onClick={onSwapSkipSelected}
+                        disabled={busy}
+                        className={topCardActionBtnClass}
+                      >
+                        Transmute
+                      </button>
+                    )}
+                    {(selectedCardActionButtons ?? []).map((action) => (
+                      <button
+                        key={action.key}
+                        type="button"
+                        onClick={action.onClick}
+                        disabled={busy || action.disabled}
+                        className={`${topCardActionBtnClass} ${action.className ?? ""}`}
+                      >
+                        {action.label}
+                      </button>
+                    ))}
+                  </div>
                 )}
               </div>
             );
