@@ -1483,7 +1483,13 @@ export async function playCard(gameId: string, actorUid: string, seat: PlayerSlo
       full = full && count >= needed;
     }
     const preSeats = preSelectionSeats({ locationId: data.locationId, partPicks: data.partPicks, gameMode: data.gameMode });
-    const preDone = preSeats.every((s) => skipThisPulse[s] || Boolean(played[s]));
+    const preDoneBase = preSeats.every((s) => skipThisPulse[s] || Boolean(played[s]));
+    const sharedSeatMustAlsoPlayInPreSelection =
+      targetPlayersForGame(data) === 2 &&
+      isSharedPseudoUid(data.players?.p3) &&
+      !skipThisPulse.p3 &&
+      !Boolean(played.p3?.card);
+    const preDone = preDoneBase && !sharedSeatMustAlsoPlayInPreSelection;
 
     if (pulsePhase === "pre_selection" && preSeats.length && !preSeats.includes(seat)) {
       throw new Error("That seat can't play before the terrain is revealed.");
@@ -1599,7 +1605,13 @@ export async function playDiscardSigilCard(gameId: string, actorUid: string, sea
       full = full && count >= needed;
     }
     const preSeats = preSelectionSeats({ locationId: data.locationId, partPicks: data.partPicks, gameMode: data.gameMode });
-    const preDone = preSeats.every((s) => skipThisPulse[s] || Boolean(played[s]));
+    const preDoneBase = preSeats.every((s) => skipThisPulse[s] || Boolean(played[s]));
+    const sharedSeatMustAlsoPlayInPreSelection =
+      targetPlayersForGame(data) === 2 &&
+      isSharedPseudoUid(data.players?.p3) &&
+      !skipThisPulse.p3 &&
+      !Boolean(played.p3?.card);
+    const preDone = preDoneBase && !sharedSeatMustAlsoPlayInPreSelection;
 
     if (pulsePhase === "pre_selection" && preSeats.length && !preSeats.includes(seat)) {
       throw new Error("That seat can't play before the terrain is revealed.");
@@ -2116,6 +2128,13 @@ export async function setPlayedCardValueChoice(
     if (!card) throw new Error("No card available for that choice.");
     const terrainDeck = data.terrainDeck ?? [];
     const terrain = terrainDeck[data.terrainIndex ?? 0] ?? null;
+    const location = getLocationById(data.locationId ?? null);
+    const locationEffects = location?.effects ?? [];
+    const locationReservoirAmplifies = locationEffects.some(
+      (effect) => effect?.type === "manifested_cards_multiplier_from_reservoir_if_suit_match"
+    );
+    const reservoirSuit = data.reservoir?.suit ?? null;
+    const reservoirMultiplier = reservoirCardMultiplierValue(data.reservoir);
 
     const optionsRaw = effectiveValueOptionsForCard(
       { locationId: data.locationId, partPicks: data.partPicks, seatSigils: data.seatSigils, gameMode: data.gameMode },
@@ -2124,8 +2143,17 @@ export async function setPlayedCardValueChoice(
       target === "primary" ? entry.valueOverride : undefined,
       terrain?.suit ?? null
     );
+    const optionsWithLocation =
+      locationReservoirAmplifies &&
+      reservoirMultiplier > 0 &&
+      reservoirSuit &&
+      card.suit === reservoirSuit
+        ? optionsRaw.map((option) => option * reservoirMultiplier)
+        : optionsRaw;
     const postRevealDelta = target === "primary" ? Number(entry.postRevealValueDelta ?? 0) : 0;
-    const options = postRevealDelta ? optionsRaw.map((option) => option + postRevealDelta) : optionsRaw;
+    const options = postRevealDelta
+      ? optionsWithLocation.map((option) => option + postRevealDelta)
+      : optionsWithLocation;
     if (options.length <= 1) throw new Error("This card has a fixed value.");
 
     const field = target === "primary" ? "valueChoice" : "extraValueChoice";
@@ -2182,6 +2210,13 @@ export async function useBalancingScale(gameId: string, actorUid: string, seat: 
     const terrainDeck = data.terrainDeck ?? [];
     const terrain = terrainDeck[data.terrainIndex ?? 0] ?? null;
     if (!terrain) throw new Error("No terrain card.");
+    const location = getLocationById(data.locationId ?? null);
+    const locationEffects = location?.effects ?? [];
+    const locationReservoirAmplifies = locationEffects.some(
+      (effect) => effect?.type === "manifested_cards_multiplier_from_reservoir_if_suit_match"
+    );
+    const reservoirSuit = data.reservoir?.suit ?? null;
+    const reservoirMultiplier = reservoirCardMultiplierValue(data.reservoir);
 
     const activeSeats = SLOTS.filter((s) => Boolean(data.players?.[s]) && !skipThisPulse[s] && Boolean(played[s]?.card));
     if (!activeSeats.includes(seat)) throw new Error("Seat is not active this Pulse.");
@@ -2197,8 +2232,15 @@ export async function useBalancingScale(gameId: string, actorUid: string, seat: 
         targetEntry?.valueOverride,
         terrain.suit
       );
+      const optionsWithLocation =
+        locationReservoirAmplifies &&
+        reservoirMultiplier > 0 &&
+        reservoirSuit &&
+        targetCard.suit === reservoirSuit
+          ? optionsRaw.map((value) => value * reservoirMultiplier)
+          : optionsRaw;
       const postDelta = Number(targetEntry?.postRevealValueDelta ?? 0);
-      const options = postDelta ? optionsRaw.map((value) => value + postDelta) : optionsRaw;
+      const options = postDelta ? optionsWithLocation.map((value) => value + postDelta) : optionsWithLocation;
       const explicit = typeof targetEntry?.valueChoice === "number" && options.includes(targetEntry.valueChoice)
         ? targetEntry.valueChoice
         : null;
