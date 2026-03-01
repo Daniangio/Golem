@@ -25,22 +25,56 @@ export function pulseCardValueOptions(
   })();
 
   const prismFixedZero = effects.some((e) => e?.type === "prism_fixed_zero");
+  const prismRangeExpand = effects.some((e) => e?.type === "prism_range_expand_two");
   if (card.suit === "prism") {
     if (prismFixedZero) return [0];
+    let min = 0;
+    let max = 3;
+    if (card.prismRange === "7-10") {
+      min = 7;
+      max = 10;
+    } else if (card.prismRange === "4-6") {
+      min = 4;
+      max = 6;
+    } else if (card.prismRange === "6-10") {
+      min = 6;
+      max = 10;
+    } else if (card.prismRange === "1-5") {
+      min = 1;
+      max = 5;
+    }
+    if (prismRangeExpand) {
+      min = Math.max(0, min - 2);
+      max = Math.min(10, max + 2);
+    }
     const out: number[] = [];
-    if (card.prismRange === "7-10") for (let v = 7; v <= 10; v += 1) out.push(v);
-    else if (card.prismRange === "4-6") for (let v = 4; v <= 6; v += 1) out.push(v);
-    else if (card.prismRange === "6-10") for (let v = 6; v <= 10; v += 1) out.push(v); // legacy support
-    else if (card.prismRange === "1-5") for (let v = 1; v <= 5; v += 1) out.push(v); // legacy support
-    else for (let v = 0; v <= 3; v += 1) out.push(v);
+    for (let v = min; v <= max; v += 1) out.push(v);
     return shouldInvertSign ? out.map((v) => -v) : out;
   }
 
   const zeroJolly = effects.find((e) => e?.type === "zero_count_as_jolly_delta");
   const base = card.value ?? 0;
   const cinderShift = effects.some((e) => e?.type === "cinder_plus_minus_one");
+  const cinderShiftLarge = effects.some((e) => e?.type === "cinder_plus_minus_three");
+  const stoneRetuning = effects.some((e) => e?.type === "stone_zero_or_double");
+  const etherNegative = effects.some((e) => e?.type === "ether_may_be_negative");
   if (card.suit === "cinder" && cinderShift) {
     const shifted = Array.from(new Set([base - 1, base, base + 1])).sort((a, b) => a - b);
+    const withLarge = cinderShiftLarge
+      ? Array.from(new Set([...shifted, base - 3, base + 3])).sort((a, b) => a - b)
+      : shifted;
+    return shouldInvertSign ? withLarge.map((v) => -v) : withLarge;
+  }
+  if (card.suit === "cinder" && cinderShiftLarge) {
+    const shifted = Array.from(new Set([base - 3, base, base + 3])).sort((a, b) => a - b);
+    return shouldInvertSign ? shifted.map((v) => -v) : shifted;
+  }
+  if (card.suit === "stone" && stoneRetuning) {
+    const shifted = Array.from(new Set([0, base, base * 2])).sort((a, b) => a - b);
+    return shouldInvertSign ? shifted.map((v) => -v) : shifted;
+  }
+  if (card.suit === "ether" && etherNegative) {
+    const shifted = Array.from(new Set([base, -base])).sort((a, b) => a - b);
     return shouldInvertSign ? shifted.map((v) => -v) : shifted;
   }
   if (zeroJolly && base === 0 && Array.isArray(zeroJolly.amount) && zeroJolly.amount.length === 2) {

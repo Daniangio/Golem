@@ -180,8 +180,12 @@ export function DeckStub({
 
   if (!onClick) return <CardBack>{inner}</CardBack>;
   return (
-    <button type="button" onClick={onClick} className="group rounded-xl text-left transition">
-      <CardBack className="transition group-hover:ring-white/20">{inner}</CardBack>
+    <button
+      type="button"
+      onClick={onClick}
+      className="group inline-flex h-[120px] w-[80px] shrink-0 items-stretch rounded-xl border-0 bg-transparent p-0 text-left align-top transition"
+    >
+      <CardBack className="h-full w-full transition group-hover:ring-white/20">{inner}</CardBack>
     </button>
   );
 }

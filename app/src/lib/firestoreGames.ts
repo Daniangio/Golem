@@ -229,6 +229,12 @@ function pulseKey(chapter: number, step: number, terrainIndex: number, outcomeLo
   return `${chapter}:${step}:${terrainIndex}:${outcomeLogLength}`;
 }
 
+function reservoirCardMultiplierValue(card: PulseCard | null | undefined): number {
+  if (!card) return 0;
+  if (card.suit !== "prism") return Math.max(0, Number(card.value ?? 0));
+  return 3;
+}
+
 function pulseKeyFromData(data: Pick<GameDoc, "chapter" | "step" | "terrainIndex" | "outcomeLog">): string {
   const chapter = Math.max(1, Number(data.chapter ?? 1));
   const step = Math.max(1, Number(data.step ?? 1));
@@ -2304,6 +2310,87 @@ export async function useSteamSigilResonance(gameId: string, actorUid: string, s
   });
 }
 
+export async function useSteamOvertonesZero(
+  gameId: string,
+  actorUid: string,
+  sourceSeat: PlayerSlot,
+  targetSeat: PlayerSlot
+) {
+  const gameRef = doc(db, "games", gameId);
+
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(gameRef);
+    if (!snap.exists()) throw new Error("Game not found.");
+    const data = snap.data() as GameDoc;
+
+    if (data.status !== "active") throw new Error("Game is not active.");
+    if (data.phase !== "play") throw new Error("Not in play phase.");
+    if ((data.pulsePhase ?? "selection") !== "actions") throw new Error("Only after reveal.");
+    if (sourceSeat === targetSeat) throw new Error("Choose another seat.");
+    if (!canActorControlSeat(data, actorUid, sourceSeat)) throw new Error("You can't act for that seat.");
+
+    const played = { ...(data.played ?? {}) } as any;
+    const sourceEntry = played[sourceSeat];
+    const targetEntry = played[targetSeat];
+    if (!sourceEntry?.card) throw new Error("Source seat has not played a card.");
+    if (!targetEntry?.card) throw new Error("Target seat has not played a card.");
+    if (!hasEffect(effectsForSeat(data, sourceSeat), "steam_zero_other_after_reveal")) {
+      throw new Error("That seat does not have Steam Overtones.");
+    }
+    if (!seatPlayedSuit(sourceEntry as any, "steam")) throw new Error("Manifest Steam to use Steam Overtones.");
+    if (sourceEntry.steamOvertonesUsed) throw new Error("Steam Overtones already used this Pulse.");
+    if (typeof targetEntry.valueOverride === "number" && targetEntry.valueOverride === 0) {
+      throw new Error("Target is already set to 0.");
+    }
+
+    played[sourceSeat] = { ...sourceEntry, steamOvertonesUsed: true };
+    played[targetSeat] = { ...targetEntry, valueOverride: 0 };
+
+    tx.update(gameRef, {
+      played,
+      updatedAt: serverTimestamp(),
+    });
+  });
+}
+
+export async function useAcidRecomposition(gameId: string, actorUid: string, seat: PlayerSlot) {
+  const gameRef = doc(db, "games", gameId);
+
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(gameRef);
+    if (!snap.exists()) throw new Error("Game not found.");
+    const data = snap.data() as GameDoc;
+
+    if (data.status !== "active") throw new Error("Game is not active.");
+    if (data.phase !== "play") throw new Error("Not in play phase.");
+    if ((data.pulsePhase ?? "selection") !== "actions") throw new Error("Only after reveal.");
+    if (!canActorControlSeat(data, actorUid, seat)) throw new Error("You can't act for that seat.");
+
+    const played = { ...(data.played ?? {}) } as any;
+    const entry = played[seat];
+    if (!entry?.card) throw new Error("Seat has not played a card.");
+    if (!hasEffect(effectsForSeat(data, seat), "acid_add_reservoir_value")) {
+      throw new Error("That seat does not have Acid Recomposition.");
+    }
+    if (!seatPlayedSuit(entry as any, "acid")) throw new Error("Manifest Acid to use Acid Recomposition.");
+    if (entry.acidRecompositionUsed) throw new Error("Acid Recomposition already used this Pulse.");
+
+    const reservoirValue = reservoirCardMultiplierValue(data.reservoir);
+    if (reservoirValue <= 0) throw new Error("Akashic Reservoir is empty.");
+    const currentDelta = Number(entry.postRevealValueDelta ?? 0);
+    played[seat] = {
+      ...entry,
+      postRevealValueDelta: currentDelta + reservoirValue,
+      acidRecompositionUsed: true,
+    };
+
+    tx.update(gameRef, {
+      played,
+      updatedAt: serverTimestamp(),
+    });
+  });
+}
+
 export async function useLensOfTiphareth(gameId: string, actorUid: string, seat: PlayerSlot, cardId: string) {
   const gameRef = doc(db, "games", gameId);
 
@@ -2860,6 +2947,11 @@ export async function endActions(gameId: string, actorUid: string) {
     }
     const chapterAbilityUsed = ensureChapterAbilityUsed(data);
     const chapterGlobalUsed = ensureChapterGlobalUsed(data);
+    const reservoirSuit = data.reservoir?.suit ?? null;
+    const reservoirMultiplier = reservoirCardMultiplierValue(data.reservoir);
+    const locationReservoirAmplifies = locationEffects.some(
+      (effect) => effect?.type === "manifested_cards_multiplier_from_reservoir_if_suit_match"
+    );
 
     const options: number[][] = [];
     const optionSeat: PlayerSlot[] = [];
@@ -2880,10 +2972,18 @@ export async function endActions(gameId: string, actorUid: string) {
           valueOverride,
           terrain.suit
         );
+        const amplifiedByReservoir =
+          locationReservoirAmplifies &&
+          reservoirMultiplier > 0 &&
+          reservoirSuit &&
+          manifestedCard.suit === reservoirSuit;
+        const valueOptionsReservoirAdjusted = amplifiedByReservoir
+          ? valueOptionsRaw.map((value) => value * reservoirMultiplier)
+          : valueOptionsRaw;
         const postRevealValueDelta = isPrimary ? Number(entry.postRevealValueDelta ?? 0) : 0;
         const valueOptions = postRevealValueDelta
-          ? valueOptionsRaw.map((value) => value + postRevealValueDelta)
-          : valueOptionsRaw;
+          ? valueOptionsReservoirAdjusted.map((value) => value + postRevealValueDelta)
+          : valueOptionsReservoirAdjusted;
         const explicitChoice =
           isPrimary && typeof entry.valueChoice === "number" && valueOptions.includes(entry.valueChoice)
             ? entry.valueChoice
@@ -2900,7 +3000,20 @@ export async function endActions(gameId: string, actorUid: string) {
       if (!Number.isFinite(raw) || raw <= 1) return multiplier;
       return multiplier * raw;
     }, 1);
-    const total = selection.total * manifestedTotalMultiplier;
+    const pyreEffect = locationEffects.find((effect) => effect?.type === "post_total_multiplier_by_suit_count") as
+      | { suit?: PulseSuit; multiplierPerCard?: number }
+      | undefined;
+    const pyreSuit = pyreEffect?.suit ?? null;
+    const pyreMultiplierPerCard = Math.max(1, Number(pyreEffect?.multiplierPerCard) || 1);
+    const pyreCount =
+      pyreSuit && pyreMultiplierPerCard > 1
+        ? activeSeats.reduce((count, seat) => {
+            const entry = played[seat];
+            return count + manifestedCards(entry).filter((card) => card.suit === pyreSuit).length;
+          }, 0)
+        : 0;
+    const pyreMultiplier = pyreCount > 0 ? Math.pow(pyreMultiplierPerCard, pyreCount) : 1;
+    const total = selection.total * manifestedTotalMultiplier * pyreMultiplier;
     const seatManifestedValues: Partial<Record<PlayerSlot, number[]>> = {};
     selection.chosenValues.forEach((value, index) => {
       const seat = optionSeat[index];

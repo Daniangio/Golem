@@ -42,6 +42,8 @@ import {
   useShatteredClayShift,
   useSteamSigilResonance,
   useTemperedCrucible,
+  useSteamOvertonesZero,
+  useAcidRecomposition,
   type GameSummary,
 } from "../lib/firestoreGames";
 import { useAuthUser } from "../lib/useAuth";
@@ -740,6 +742,12 @@ export default function Game() {
     const info: Partial<Record<PlayerSlot, SeatValueChoiceInfo>> = {};
     const optionRows: number[][] = [];
     const rowMeta: Array<{ seat: PlayerSlot; target: "primary" | "extra" }> = [];
+    const locationReservoirAmplifies = Boolean(
+      location?.effects?.some((effect) => effect?.type === "manifested_cards_multiplier_from_reservoir_if_suit_match")
+    );
+    const reservoirSuit = game.reservoir?.suit ?? null;
+    const reservoirMultiplier =
+      game.reservoir?.suit === "prism" ? 3 : Math.max(0, Number(game.reservoir?.value ?? 0));
 
     for (const seat of SLOTS) {
       const entry = played[seat];
@@ -759,10 +767,17 @@ export default function Game() {
           : pulseCardValueOptions(entry.card, seatEffects, { terrainSuit: terrain?.suit ?? null }).map(
               (v) => (v + valueDelta) * valueMultiplier
             );
+      const primaryOptionsWithLocation =
+        locationReservoirAmplifies &&
+        reservoirMultiplier > 0 &&
+        reservoirSuit &&
+        entry.card.suit === reservoirSuit
+          ? primaryOptions.map((value) => value * reservoirMultiplier)
+          : primaryOptions;
       const postRevealValueDelta = Number(entry.postRevealValueDelta ?? 0);
       const primaryShiftedOptions = postRevealValueDelta
-        ? primaryOptions.map((value) => value + postRevealValueDelta)
-        : primaryOptions;
+        ? primaryOptionsWithLocation.map((value) => value + postRevealValueDelta)
+        : primaryOptionsWithLocation;
 
       const seatInfo: SeatValueChoiceInfo = {
         primaryOptions: primaryShiftedOptions,
@@ -779,11 +794,18 @@ export default function Game() {
         const extraOptions = pulseCardValueOptions(entry.extraCard, seatEffects, {
           terrainSuit: terrain?.suit ?? null,
         }).map((v) => (v + valueDelta) * valueMultiplier);
-        seatInfo.extraOptions = extraOptions;
-        if (typeof entry.extraValueChoice === "number" && extraOptions.includes(entry.extraValueChoice)) {
+        const extraOptionsWithLocation =
+          locationReservoirAmplifies &&
+          reservoirMultiplier > 0 &&
+          reservoirSuit &&
+          entry.extraCard.suit === reservoirSuit
+            ? extraOptions.map((value) => value * reservoirMultiplier)
+            : extraOptions;
+        seatInfo.extraOptions = extraOptionsWithLocation;
+        if (typeof entry.extraValueChoice === "number" && extraOptionsWithLocation.includes(entry.extraValueChoice)) {
           seatInfo.extraSelected = entry.extraValueChoice;
         }
-        optionRows.push(extraOptions);
+        optionRows.push(extraOptionsWithLocation);
         rowMeta.push({ seat, target: "extra" });
       }
 
@@ -842,6 +864,8 @@ export default function Game() {
   const ABILITY_SIGIL_RESONANCE_GIFT = "resonance_grants_ally_refill";
   const ABILITY_SIGIL_BALANCING_SCALE = "post_reveal_reduce_if_top";
   const ABILITY_SIGIL_TEMPERED_CRUCIBLE = "once_per_chapter_ignore_friction_pulse";
+  const ABILITY_SIGIL_STEAM_OVERTONES = "steam_zero_other_after_reveal";
+  const ABILITY_SIGIL_ACID_RECOMPOSITION = "acid_add_reservoir_value";
   const locationHasConductorPassRule = Boolean(location?.effects?.some((e) => e?.type === "pre_selection_pass_to_conductor"));
   const conductorOnlySelection = Boolean(location?.effects?.some((e) => e?.type === "conductor_plays_three_cards"));
   const handActionModeActive = Boolean(handActionMode);
@@ -1755,6 +1779,45 @@ export default function Game() {
                           !(game.chapterAbilityUsed?.[seat]?.[ABILITY_SIGIL_TEMPERED_CRUCIBLE] ?? false)
                       )
                     }
+                    canSteamOvertonesSourceSeat={(seat) =>
+                      Boolean(
+                        pulsePhase === "actions" &&
+                          uid &&
+                          gameId &&
+                          canControlSeat(game, uid, seat) &&
+                          seatHasEffect(seat, ABILITY_SIGIL_STEAM_OVERTONES) &&
+                          played[seat]?.card &&
+                          !Boolean((played[seat] as any)?.steamOvertonesUsed) &&
+                          (() => {
+                            const manifested = [
+                              (played[seat] as any)?.card,
+                              ...((played[seat] as any)?.additionalCards ?? []),
+                              ...((played[seat] as any)?.extraCard ? [(played[seat] as any)?.extraCard] : []),
+                            ].filter(Boolean);
+                            return manifested.some((card: any) => card?.suit === "steam");
+                          })()
+                      )
+                    }
+                    canAcidRecompositionSeat={(seat) =>
+                      Boolean(
+                        pulsePhase === "actions" &&
+                          uid &&
+                          gameId &&
+                          canControlSeat(game, uid, seat) &&
+                          seatHasEffect(seat, ABILITY_SIGIL_ACID_RECOMPOSITION) &&
+                          played[seat]?.card &&
+                          !Boolean((played[seat] as any)?.acidRecompositionUsed) &&
+                          Boolean(game.reservoir) &&
+                          (() => {
+                            const manifested = [
+                              (played[seat] as any)?.card,
+                              ...((played[seat] as any)?.additionalCards ?? []),
+                              ...((played[seat] as any)?.extraCard ? [(played[seat] as any)?.extraCard] : []),
+                            ].filter(Boolean);
+                            return manifested.some((card: any) => card?.suit === "acid");
+                          })()
+                      )
+                    }
                     onSteamSigil={(seat) =>
                       void guarded(async () => {
                         if (!uid || !gameId) return;
@@ -1771,6 +1834,18 @@ export default function Game() {
                       void guarded(async () => {
                         if (!uid || !gameId) return;
                         await useTemperedCrucible(gameId, uid, seat);
+                      })
+                    }
+                    onSteamOvertonesTarget={(sourceSeat, targetSeat) =>
+                      void guarded(async () => {
+                        if (!uid || !gameId) return;
+                        await useSteamOvertonesZero(gameId, uid, sourceSeat, targetSeat);
+                      })
+                    }
+                    onAcidRecomposition={(seat) =>
+                      void guarded(async () => {
+                        if (!uid || !gameId) return;
+                        await useAcidRecomposition(gameId, uid, seat);
                       })
                     }
                     canSwapR1Seat={(seat) =>

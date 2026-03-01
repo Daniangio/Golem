@@ -53,8 +53,16 @@ export type Effect =
   | { type: "success_refill_highest_else_resonance" }
   | { type: "friction_unless_two_ether_or_prism"; amount: number; threshold?: number }
   | { type: "disable_resonance_refill" }
+  | { type: "post_total_multiplier_by_suit_count"; suit: Exclude<PulseSuit, "prism">; multiplierPerCard: number }
+  | { type: "manifested_cards_multiplier_from_reservoir_if_suit_match"; applyTo?: "all_matching_cards" }
   // Sigils
   | { type: "cinder_plus_minus_one" }
+  | { type: "cinder_plus_minus_three" }
+  | { type: "stone_zero_or_double" }
+  | { type: "ether_may_be_negative" }
+  | { type: "steam_zero_other_after_reveal" }
+  | { type: "acid_add_reservoir_value" }
+  | { type: "prism_range_expand_two" }
   | { type: "once_per_chapter_resonance_as_steam" }
   | { type: "swap_friction_zero_if_replaced_suit"; suit: Exclude<PulseSuit, "prism"> }
   | { type: "once_per_chapter_overshoot_stone_to_friction" }

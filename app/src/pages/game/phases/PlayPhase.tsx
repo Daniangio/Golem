@@ -62,9 +62,13 @@ type PlayPhaseProps = {
   canBalancingScaleMinus1Seat: (seat: PlayerSlot) => boolean;
   canBalancingScaleMinus2Seat: (seat: PlayerSlot) => boolean;
   canTemperedCrucibleSeat: (seat: PlayerSlot) => boolean;
+  canSteamOvertonesSourceSeat: (seat: PlayerSlot) => boolean;
+  canAcidRecompositionSeat: (seat: PlayerSlot) => boolean;
   onSteamSigil: (seat: PlayerSlot) => void;
   onBalancingScale: (seat: PlayerSlot, amount: 1 | 2) => void;
   onTemperedCrucible: (seat: PlayerSlot) => void;
+  onSteamOvertonesTarget: (sourceSeat: PlayerSlot, targetSeat: PlayerSlot) => void;
+  onAcidRecomposition: (seat: PlayerSlot) => void;
   canSwapR1Seat: (seat: PlayerSlot) => boolean;
   canSwapR2Seat: (seat: PlayerSlot) => boolean;
   canFuseSeat: (seat: PlayerSlot) => boolean;
@@ -123,9 +127,13 @@ export function PlayPhase({
   canBalancingScaleMinus1Seat,
   canBalancingScaleMinus2Seat,
   canTemperedCrucibleSeat,
+  canSteamOvertonesSourceSeat,
+  canAcidRecompositionSeat,
   onSteamSigil,
   onBalancingScale,
   onTemperedCrucible,
+  onSteamOvertonesTarget,
+  onAcidRecomposition,
   canSwapR1Seat,
   canSwapR2Seat,
   canFuseSeat,
@@ -153,6 +161,8 @@ export function PlayPhase({
       canBalancingScaleMinus1Seat(seat) ||
       canBalancingScaleMinus2Seat(seat) ||
       canTemperedCrucibleSeat(seat) ||
+      canSteamOvertonesSourceSeat(seat) ||
+      canAcidRecompositionSeat(seat) ||
       canAmplifySeat(seat) ||
       canResonanceGiftSeat(seat)
     );
@@ -617,6 +627,46 @@ export function PlayPhase({
                 >
                   Temper Pulse (ignore Friction)
                 </button>
+              )}
+              {canAcidRecompositionSeat(actionsSeat) && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    onAcidRecomposition(actionsSeat);
+                    setActionsSeat(null);
+                  }}
+                  disabled={busy}
+                  className="rounded-2xl bg-emerald-400 px-3 py-2 text-[12px] font-extrabold text-slate-950 shadow disabled:opacity-40"
+                >
+                  Acid Recomposition
+                </button>
+              )}
+              {canSteamOvertonesSourceSeat(actionsSeat) && (
+                <div className="rounded-2xl bg-white/5 p-2 ring-1 ring-white/10">
+                  <div className="mb-2 text-[11px] font-semibold text-white/75">Steam Overtones target</div>
+                  <div className="grid gap-1.5">
+                    {SLOTS.filter((targetSeat) => targetSeat !== actionsSeat && Boolean(played?.[targetSeat]?.card)).map(
+                      (targetSeat) => {
+                        const targetUid = players[targetSeat] ?? "";
+                        const targetName = targetUid ? playerLabel(targetUid, playerNames) : seatLabel(targetSeat);
+                        return (
+                          <button
+                            key={`steam-overtones:${actionsSeat}:${targetSeat}`}
+                            type="button"
+                            onClick={() => {
+                              onSteamOvertonesTarget(actionsSeat, targetSeat);
+                              setActionsSeat(null);
+                            }}
+                            disabled={busy}
+                            className="rounded-2xl bg-white px-3 py-1.5 text-left text-[11px] font-extrabold text-slate-900 shadow-sm disabled:opacity-40"
+                          >
+                            Set {targetName} to 0
+                          </button>
+                        );
+                      }
+                    )}
+                  </div>
+                </div>
               )}
               {canResonanceGiftSeat(actionsSeat) &&
                 (() => {

@@ -234,6 +234,34 @@
     "effects": [{ "type": "selection_unbounded_cards" }]
   },
   {
+    "id": "S6_GEBURAH_THE_PYRE_OF_AMPLIFICATION",
+    "sphere": 6,
+    "terrainDeckType": "sphere_5_6",
+    "name": "Geburah: The Pyre of Amplification",
+    "image": "/images/locations/6-Gevurah-The Pyre of Amplification.jpg",
+    "flavor": "“Each spark feeds the sentence. In the Pyre, one flame is power; many flames are annihilation.”",
+    "rule": "Cinder Escalation: after summing all manifested values, multiply the total by 2 for each manifested Cinder card (1 Cinder = ×2, 2 Cinders = ×4, 3 Cinders = ×8).",
+    "rewards": ["Sigil Draft: reveal 3 Tier-3 Sigils, choose 1."],
+    "sigilReward": { "tier": 3, "reveal": 3, "choose": 1 },
+    "compulsoryFacultyIds": ["scales_of_geburah", "herald_of_law"],
+    "optionalFacultyIds": ["supernal_overflow", "vessel_of_dualities"],
+    "effects": [{ "type": "post_total_multiplier_by_suit_count", "suit": "cinder", "multiplierPerCard": 2 }]
+  },
+  {
+    "id": "S6_GEBURAH_THE_REGISTRAR_OF_SEVERITY",
+    "sphere": 6,
+    "terrainDeckType": "sphere_5_6",
+    "name": "Geburah: The Registrar of Severity",
+    "image": "/images/locations/6-Gevurah-The Registrar of Severity.jpg",
+    "flavor": "“The Record does not advise—it amplifies what mirrors it.”",
+    "rule": "Akashic Magnification: each manifested card whose suit matches the Akashic Reservoir suit has its value multiplied by the Reservoir card value before total resolution (Prism Reservoir counts as 3).",
+    "rewards": ["Sigil Draft: reveal 3 Tier-3 Sigils, choose 1."],
+    "sigilReward": { "tier": 3, "reveal": 3, "choose": 1 },
+    "compulsoryFacultyIds": ["harmonized_memory", "akashic_lens"],
+    "optionalFacultyIds": ["lens_of_tiphareth", "anchor_of_malkuth"],
+    "effects": [{ "type": "manifested_cards_multiplier_from_reservoir_if_suit_match", "applyTo": "all_matching_cards" }]
+  },
+  {
     "id": "S7_CHESED_INVERTED_TIDE",
     "sphere": 7,
     "terrainDeckType": "sphere_7",
@@ -277,12 +305,13 @@
     "sphere": 8,
     "terrainDeckType": "sphere_8_9",
     "name": "Binah: The Double Seal",
+    "image": "/images/locations/8-Binah-The Double Seal.jpg",
     "flavor": "“Understanding is not a fleeting spark, but a dwelling within the structure. To advance, the vibration must be proven twice.”",
     "rule": "The Twin Validation: Each Terrain card requires two consecutive successful Pulses to be overcome. Any Stall or Overshoot resets the count for the current Terrain to zero.",
     "rewards": ["Sigil Draft: reveal 3 Tier-4 Sigils, choose 1."],
     "sigilReward": { "tier": 4, "reveal": 3, "choose": 1 },
-    "compulsoryFacultyIds": ["leadened_shackle", "veiled_eye"],
-    "optionalFacultyIds": ["harmonized_memory", "akashic_lens"],
+    "compulsoryFacultyIds": ["herald_of_law", "triune_focus"],
+    "optionalFacultyIds": ["lens_of_tiphareth", "harmonized_memory"],
     "effects": [{ "type": "requires_consecutive_successes", "count": 2 }]
   },
   {
@@ -290,12 +319,13 @@
     "sphere": 8,
     "terrainDeckType": "sphere_8_9",
     "name": "Binah: The Primordial Sea",
+    "image": "/images/locations/8-Binah-The Primordial Sea.jpg",
     "flavor": "“The Waters of Marah are deep and bitter. In the Great Sea, every action draws from the limited pool of pre-existent Form.”",
     "rule": "The Drowning of Form: Any card used in a successful Pulse is removed from the game for the remainder of this Chapter. If a player’s hand cannot be refilled because the deck is empty, the Golem takes 2 Damage to pull discarded cards back into existence.",
     "rewards": ["Sigil Draft: reveal 3 Tier-4 Sigils, choose 1."],
     "sigilReward": { "tier": 4, "reveal": 3, "choose": 1 },
-    "compulsoryFacultyIds": ["communion_of_vessels", "leadened_shackle"],
-    "optionalFacultyIds": ["unveiled_radiance", "supernal_overflow"],
+    "compulsoryFacultyIds": ["harmonic_amplifier", "sophic_vent"],
+    "optionalFacultyIds": ["vessel_of_dualities", "lens_of_tiphareth"],
     "effects": [{ "type": "remove_success_cards_from_game" }]
   },
   {
@@ -303,12 +333,13 @@
     "sphere": 8,
     "terrainDeckType": "sphere_8_9",
     "name": "Binah: The Palace of Understanding",
+    "image": "/images/locations/8-Binah-The Palace of Understanding.jpg",
     "flavor": "“The Mother speaks in a whisper only the Conductor can hear. The rest must trust in the elemental weight of the suits.”",
-    "rule": "The Conductor’s Burden: Only the player assigned the 'Conductor' Faculty may look at the Terrain Card. They may only declare the Resonant Suit to the group. No other information (Range) may be shared.",
+    "rule": "The Conductor’s Burden: Only the player assigned the 'Conductor' Faculty may inspect the full Law Deck at any time (all Terrain cards, exactly as with Akashic Lens). They may only declare the Resonant Suit to the group. No other information (including ranges or future cards) may be shared.",
     "rewards": ["Sigil Draft: reveal 3 Tier-4 Sigils, choose 1."],
     "sigilReward": { "tier": 4, "reveal": 3, "choose": 1 },
-    "compulsoryFacultyIds": ["conductor_of_streams", "veiled_eye"],
-    "optionalFacultyIds": ["akashic_lens", "unveiled_radiance"],
+    "compulsoryFacultyIds": ["conductor_of_streams", "triune_focus"],
+    "optionalFacultyIds": ["scales_of_geburah", "unveiled_radiance"],
     "effects": [{ "type": "conductor_only_terrain_view" }, { "type": "suit_only_communication" }]
   }
 ]

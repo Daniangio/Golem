@@ -69,6 +69,8 @@ export type PlayedCard = {
   resonanceSuitOverride?: Exclude<PulseSuit, "prism">; // e.g. Sigil of Steam
   resonanceGiftSeat?: PlayerSlot; // e.g. Sigil of the Constricted Breath
   disableResonanceRefill?: boolean; // e.g. Sigil of the Great Matrix
+  steamOvertonesUsed?: boolean; // Sigil of Steam Overtones (once per pulse)
+  acidRecompositionUsed?: boolean; // Sigil of Acid Recomposition (once per pulse)
   revealedDuringSelection?: boolean; // Unveiled Radiance
   bySeat: PlayerSlot;
   at: any; // serverTimestamp

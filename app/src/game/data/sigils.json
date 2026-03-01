@@ -96,5 +96,53 @@
     "name": "Sigil of Recursive Form",
     "text": "On Success, before refill, you may recover 1 card of your choice from the discard pile into your hand.",
     "effects": [{ "type": "success_recover_from_discard", "count": 1 }]
+  },
+  {
+    "id": "sigil_of_cinder_weaving",
+    "tier": 3,
+    "color": "#f97316",
+    "name": "Sigil of Cinder Weaving",
+    "text": "Passive: when you manifest Cinder, you may treat its value as -3, 0, or +3 from its printed value during reveal resolution.",
+    "effects": [{ "type": "cinder_plus_minus_three" }]
+  },
+  {
+    "id": "sigil_of_stone_retuning",
+    "tier": 3,
+    "color": "#b45309",
+    "name": "Sigil of Stone Retuning",
+    "text": "Passive: when you manifest Stone, you may resolve it as 0, its printed value, or double its printed value.",
+    "effects": [{ "type": "stone_zero_or_double" }]
+  },
+  {
+    "id": "sigil_of_ether_refraction",
+    "tier": 3,
+    "color": "#38bdf8",
+    "name": "Sigil of Ether Refraction",
+    "text": "Passive: when you manifest Ether, you may resolve it as either positive or negative value.",
+    "effects": [{ "type": "ether_may_be_negative" }]
+  },
+  {
+    "id": "sigil_of_steam_overtones",
+    "tier": 3,
+    "color": "#e2e8f0",
+    "name": "Sigil of Steam Overtones",
+    "text": "After reveal, if you manifested Steam, you may set one other player’s manifested card value to 0.",
+    "effects": [{ "type": "steam_zero_other_after_reveal" }]
+  },
+  {
+    "id": "sigil_of_acid_recomposition",
+    "tier": 3,
+    "color": "#22c55e",
+    "name": "Sigil of Acid Recomposition",
+    "text": "After reveal, if you manifested Acid, you may add the Akashic Reservoir card value to your manifested value (Prism Reservoir counts as 3).",
+    "effects": [{ "type": "acid_add_reservoir_value" }]
+  },
+  {
+    "id": "sigil_of_prismatic_discipline",
+    "tier": 3,
+    "color": "#a78bfa",
+    "name": "Sigil of Prismatic Discipline",
+    "text": "Passive: your Prism range expands by 2 on both sides (minimum 0, maximum 10).",
+    "effects": [{ "type": "prism_range_expand_two" }]
   }
 ]
