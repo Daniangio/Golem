@@ -243,8 +243,8 @@
     "rule": "Cinder Escalation: after summing all manifested values, multiply the total by 2 for each manifested Cinder card (1 Cinder = ×2, 2 Cinders = ×4, 3 Cinders = ×8).",
     "rewards": ["Sigil Draft: reveal 3 Tier-3 Sigils, choose 1."],
     "sigilReward": { "tier": 3, "reveal": 3, "choose": 1 },
-    "compulsoryFacultyIds": ["scales_of_geburah", "herald_of_law"],
-    "optionalFacultyIds": ["supernal_overflow", "vessel_of_dualities"],
+    "compulsoryFacultyIds": ["communion_of_vessels", "herald_of_law"],
+    "optionalFacultyIds": ["supernal_overflow", "breath_of_dissolution"],
     "effects": [{ "type": "post_total_multiplier_by_suit_count", "suit": "cinder", "multiplierPerCard": 2 }]
   },
   {
@@ -257,8 +257,8 @@
     "rule": "Akashic Magnification: each manifested card whose suit matches the Akashic Reservoir suit has its value multiplied by the Reservoir card value before total resolution (Prism Reservoir counts as 3).",
     "rewards": ["Sigil Draft: reveal 3 Tier-3 Sigils, choose 1."],
     "sigilReward": { "tier": 3, "reveal": 3, "choose": 1 },
-    "compulsoryFacultyIds": ["harmonized_memory", "akashic_lens"],
-    "optionalFacultyIds": ["lens_of_tiphareth", "anchor_of_malkuth"],
+    "compulsoryFacultyIds": ["harmonized_memory", "communion_of_vessels"],
+    "optionalFacultyIds": ["lens_of_tiphareth", "vessel_of_dualities"],
     "effects": [{ "type": "manifested_cards_multiplier_from_reservoir_if_suit_match", "applyTo": "all_matching_cards" }]
   },
   {

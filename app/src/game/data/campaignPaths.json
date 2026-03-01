@@ -10,7 +10,7 @@
       { "sphere": 3, "locationId": "S3_HOD_GEOMETRIC_ORDER" },
       { "sphere": 4, "locationId": "S4_NETZACH_THICKET_OF_FALSE_VICTORIES" },
       { "sphere": 5, "locationId": "S5_TIPHARETH_HERALDS_STRAIN" },
-      { "sphere": 6, "locationId": "S6_GEVURAH_CRUCIBLE_OF_EXCESS" },
+      { "sphere": 6, "locationId": "S6_GEBURAH_THE_PYRE_OF_AMPLIFICATION" },
       { "sphere": 7, "locationId": "S7_CHESED_INVERTED_TIDE" },
       { "sphere": 8, "locationId": "S8_BINAH_THE_DOUBLE_SEAL" }
     ]
@@ -28,7 +28,7 @@
       { "sphere": 5, "locationId": "S5_TIPHARETH_COMMUNION_CORE" },
       { "sphere": 6, "locationId": "S6_GEVURAH_CRUCIBLE_OF_EXCESS" },
       { "sphere": 7, "locationId": "S7_CHESED_MIRROR_OF_GRACE" },
-      { "sphere": 8, "locationId": "S8_BINAH_THE_DOUBLE_SEAL" }
+      { "sphere": 8, "locationId": "S8_BINAH_THE_PALACE_OF_UNDERSTANDING" }
     ]
   },
   {
@@ -42,9 +42,9 @@
       { "sphere": 3, "locationId": "S3_HOD_UNFORGIVING_LOGIC" },
       { "sphere": 4, "locationId": "S4_NETZACH_FORGE_OF_UNENDING_DESIRE" },
       { "sphere": 5, "locationId": "S5_TIPHARETH_CHAOTIC_MANDALA" },
-      { "sphere": 6, "locationId": "S6_GEVURAH_CRUCIBLE_OF_EXCESS" },
+      { "sphere": 6, "locationId": "S6_GEBURAH_THE_REGISTRAR_OF_SEVERITY" },
       { "sphere": 7, "locationId": "S7_CHESED_WHEEL_OF_BENEVOLENCE" },
-      { "sphere": 8, "locationId": "S8_BINAH_THE_DOUBLE_SEAL" }
+      { "sphere": 8, "locationId": "S8_BINAH_THE_PRIMORDIAL_SEA" }
     ]
   }
 ]
