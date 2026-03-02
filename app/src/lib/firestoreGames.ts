@@ -1164,6 +1164,86 @@ export async function setPseudoController(gameId: string, actorUid: string, cont
   });
 }
 
+function canUseChapterMulligan(data: GameDoc): boolean {
+  if (data.status !== "active" || data.phase !== "play") return false;
+  const pulsePhase = (data.pulsePhase ?? "selection") as GameDoc["pulsePhase"];
+  if (pulsePhase !== "selection" && pulsePhase !== "pre_selection") return false;
+  if ((data.step ?? 1) !== 1) return false;
+  if ((data.terrainIndex ?? 0) !== 0) return false;
+  if (Boolean(data.chapterGlobalUsed?.chapter_mulligan_locked)) return false;
+  const played = data.played ?? {};
+  if (SLOTS.some((seat) => Boolean(played[seat]?.card))) return false;
+  return true;
+}
+
+export async function useChapterMulligan(gameId: string, actorUid: string, seat: PlayerSlot, cardIds: string[]) {
+  const gameRef = doc(db, "games", gameId);
+
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(gameRef);
+    if (!snap.exists()) throw new Error("Game not found.");
+    const data = snap.data() as GameDoc;
+
+    if (!canUseChapterMulligan(data)) throw new Error("Global mulligan is not available now.");
+    if (!canActorControlSeat(data, actorUid, seat)) throw new Error("You can't act for that seat.");
+
+    const uniqueIds = Array.from(new Set(cardIds.filter(Boolean)));
+    if (!uniqueIds.length) throw new Error("Select at least one card.");
+
+    const hands = { ...(data.hands ?? {}) } as SeatHands;
+    const hand = [...(hands[seat] ?? [])];
+    if (!hand.length) throw new Error("No cards in hand.");
+
+    const selectedSet = new Set(uniqueIds);
+    const selectedCardsInHand = hand.filter((card) => selectedSet.has(card.id));
+    if (selectedCardsInHand.length !== uniqueIds.length) throw new Error("Some selected cards are no longer in hand.");
+
+    const keptHand = hand.filter((card) => !selectedSet.has(card.id));
+    const selectedByChoiceOrder = uniqueIds
+      .map((id) => selectedCardsInHand.find((card) => card.id === id))
+      .filter((card): card is PulseCard => Boolean(card));
+
+    const deck = [...(data.pulseDeck ?? [])];
+    const discard = [...(data.pulseDiscard ?? [])];
+    deck.push(...selectedByChoiceOrder);
+    const drawn = drawCardsWithLocationRules(deck, discard, selectedByChoiceOrder.length);
+    hands[seat] = [...keptHand, ...drawn];
+
+    const chapterGlobalUsed = ensureChapterGlobalUsed(data);
+    chapterGlobalUsed.chapter_mulligan_locked = true;
+
+    tx.update(gameRef, {
+      hands,
+      pulseDeck: deck,
+      pulseDiscard: discard,
+      lastDiscarded: [],
+      chapterGlobalUsed,
+      updatedAt: serverTimestamp(),
+    });
+  });
+}
+
+export async function skipChapterMulligan(gameId: string, actorUid: string, seat: PlayerSlot) {
+  const gameRef = doc(db, "games", gameId);
+
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(gameRef);
+    if (!snap.exists()) throw new Error("Game not found.");
+    const data = snap.data() as GameDoc;
+
+    if (!canUseChapterMulligan(data)) throw new Error("Global mulligan is not available now.");
+    if (!canActorControlSeat(data, actorUid, seat)) throw new Error("You can't act for that seat.");
+
+    const chapterGlobalUsed = ensureChapterGlobalUsed(data);
+    chapterGlobalUsed.chapter_mulligan_locked = true;
+
+    tx.update(gameRef, {
+      chapterGlobalUsed,
+      updatedAt: serverTimestamp(),
+    });
+  });
+}
+
 export async function setSigilDraftAssignment(
   gameId: string,
   actorUid: string,
@@ -3522,7 +3602,7 @@ export async function endActions(gameId: string, actorUid: string) {
     }
 
     const terrainStride = useThreeTerrains ? terrainSet.length : 1;
-    const advance = result === "success" && consecutiveGateAllowsAdvance;
+    const advance = (result === "success" && consecutiveGateAllowsAdvance) || result === "overshoot";
     const nextIndex = advance ? terrainIndex + terrainStride : terrainIndex;
     const nextStep = advance ? (data.step ?? 1) + 1 : (data.step ?? 1);
     const gameMode = (data.gameMode ?? "campaign") as GameMode;

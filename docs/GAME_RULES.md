@@ -70,6 +70,8 @@ III. OFFICIAL RULES OF MANIFESTATION
 
 Each Chapter consists of 5 Steps (Pulses). To win, the Golem must complete 5 Steps while maintaining at least 1 Divine Spark.
 
+Chapter Mulligan (start-of-chapter only): before the first manifestation of Step 1, the group has one shared free mulligan. A single player may place any number of cards from hand at the bottom of the Pulse Deck, then draw the same amount. This can be invoked only once per Chapter; alternatively, a player may skip it and consume it.
+
 Terrain Reveal: Flip the current step's Terrain Card (e.g., Target: $12-16$, Suit: Steam).
 
 Secret Selection: Each player plays 1 card from their hand face-down.
@@ -80,7 +82,7 @@ Prism Cards: Values are chosen at resolution time to best fit the Stability Wind
 
 Success: $V_{total}$ is within the window. The Vessel advances.
 
-The Overshoot (Pride): $V_{total} >$ Max. The Vessel loses $1$ Divine Spark (unless prevented). The Terrain is **not** resolved (the same Terrain remains for the next Pulse), and all players refill.
+The Overshoot (Pride): $V_{total} >$ Max. The Vessel loses $1$ Divine Spark (unless prevented), the Terrain is resolved (advance to next Terrain), and all players refill.
 
 The Stall (Apathy): $V_{total} <$ Min. The Vessel fails to move; the current Terrain remains for the next Pulse.
 
@@ -91,7 +93,7 @@ Resonance is evaluated immediately after the pulse result is committed (Success 
 Default refill behavior:
 
 - Success: all players refill.
-- Overshoot: all players refill, but the current Terrain remains unresolved.
+- Overshoot: all players refill, and the Terrain is resolved (advance to next Terrain).
 - Stall: only players that matched the Resonant Suit refill.
 
 Location and Faculty effects may override this default (for example disabling resonance, restricting success refills, or locking a seat from Success/Resonance refills).
@@ -107,7 +109,7 @@ For each Pulse, resolve in this order:
 5. Resolve draw/refill step (including Resonance, if enabled).
 6. Resolve post-refill discard effects.
 7. Resolve Desperation Surge (if any hand is empty at next selection start).
-8. Advance terrain/step only on Success; keep the same terrain on Stall and Overshoot; then open next pulse.
+8. Advance terrain/step on Success and Overshoot; keep the same terrain only on Stall; then open next pulse.
 
 Important interactions:
 
@@ -154,4 +156,4 @@ VI. TECHNICAL NOTES
 
 Reshuffle: If the Pulse Deck is empty, shuffle the discard pile.
 
-Failure Loop: On a Stall or Overshoot, the same Terrain card stays. You must overcome it in the next Pulse with your refilled/remaining cards.
+Failure Loop: On a Stall, the same Terrain card stays. On Overshoot, the Terrain is resolved and the next Terrain is drawn.

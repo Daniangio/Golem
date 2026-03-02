@@ -37,9 +37,11 @@ import {
   useBalancingScale,
   useHarmonicAmplifier,
   useBlackSeaSigilDraw,
+  useChapterMulligan,
   useFuse,
   useLensOfTiphareth,
   useShatteredClayShift,
+  skipChapterMulligan,
   useSteamSigilResonance,
   useTemperedCrucible,
   useSteamOvertonesZero,
@@ -112,7 +114,7 @@ export default function Game() {
   const [showLocationInfoModal, setShowLocationInfoModal] = useState(false);
   const [activeNotice, setActiveNotice] = useState<GameSummary["uiNotice"] | null>(null);
   const [dismissedNoticeIds, setDismissedNoticeIds] = useState<string[]>([]);
-  const [handActionMode, setHandActionMode] = useState<"black_sea" | "shattered_clay" | null>(null);
+  const [handActionMode, setHandActionMode] = useState<"black_sea" | "shattered_clay" | "mulligan" | null>(null);
   const [handActionSelectedIds, setHandActionSelectedIds] = useState<string[]>([]);
   const [locationCarouselIndex, setLocationCarouselIndex] = useState(0);
   const [resolvingLocationId, setResolvingLocationId] = useState<string | null>(null);
@@ -433,6 +435,17 @@ export default function Game() {
       setHandActionMode(null);
       setHandActionSelectedIds([]);
     }
+    if (handActionMode === "mulligan") {
+      const chapterMulliganLocked = Boolean(game.chapterGlobalUsed?.chapter_mulligan_locked);
+      const playedNow = game.played ?? {};
+      const anyPlayed = SLOTS.some((seat) => Boolean(playedNow[seat]?.card));
+      const atChapterStart = (game.step ?? 1) === 1 && (game.terrainIndex ?? 0) === 0;
+      const canStay = (pulsePhaseNow === "selection" || pulsePhaseNow === "pre_selection") && atChapterStart && !chapterMulliganLocked && !anyPlayed;
+      if (!canStay) {
+        setHandActionMode(null);
+        setHandActionSelectedIds([]);
+      }
+    }
   }, [game, handActionMode]);
 
   useEffect(() => {
@@ -604,6 +617,22 @@ export default function Game() {
   const played = game.played ?? {};
   const skipThisPulse = game.skipThisPulse ?? {};
   const selectedSeatSkipped = Boolean(skipThisPulse[selectedSeat]);
+  const chapterMulliganLocked = Boolean(game.chapterGlobalUsed?.chapter_mulligan_locked);
+  const anySeatPlayedThisPulse = SLOTS.some((seat) => Boolean(played[seat]?.card));
+  const chapterMulliganAvailable =
+    game.phase === "play" &&
+    (pulsePhase === "selection" || pulsePhase === "pre_selection") &&
+    (game.step ?? 1) === 1 &&
+    (game.terrainIndex ?? 0) === 0 &&
+    !chapterMulliganLocked &&
+    !anySeatPlayedThisPulse;
+  const canUseChapterMulliganForSelected = Boolean(
+    chapterMulliganAvailable &&
+      uid &&
+      actingSeat &&
+      actingSeat === selectedSeat &&
+      canActForSelected
+  );
   const haveAllPlayed = SLOTS.every(
     (s) => Boolean(players[s]) && (Boolean(skipThisPulse[s]) || Boolean(played[s]?.card))
   );
@@ -1290,6 +1319,56 @@ export default function Game() {
           ? "The Communion of Vessels: select a card, then use Return above the selected card."
           : "The Communion of Vessels: wait while the recipient returns a card."}
     </div>
+  ) : handActionMode === "mulligan" ? (
+    <div className="space-y-2">
+      <div className="text-[11px] font-semibold text-white/80">
+        Global chapter mulligan: select any number of cards, place them at deck bottom, then draw the same amount.
+      </div>
+      <div className="text-[11px] text-white/65">Selected {handActionSelectedIds.length} card(s).</div>
+      <div className="flex flex-wrap gap-2">
+        <button
+          type="button"
+          onClick={() =>
+            void guarded(async () => {
+              if (!uid || !gameId || !actingSeat) return;
+              if (!handActionSelectedIds.length) return;
+              await useChapterMulligan(gameId, uid, actingSeat, handActionSelectedIds);
+              setHandActionSelectedIds([]);
+              setHandActionMode(null);
+            })
+          }
+          disabled={busy || !canUseChapterMulliganForSelected || !handActionSelectedIds.length}
+          className="rounded-2xl bg-sky-400 px-3 py-1.5 text-[11px] font-extrabold text-slate-950 shadow-sm disabled:opacity-40"
+        >
+          Mulligan
+        </button>
+        <button
+          type="button"
+          onClick={() =>
+            void guarded(async () => {
+              if (!uid || !gameId || !actingSeat) return;
+              await skipChapterMulligan(gameId, uid, actingSeat);
+              setHandActionSelectedIds([]);
+              setHandActionMode(null);
+            })
+          }
+          disabled={busy || !canUseChapterMulliganForSelected}
+          className="rounded-2xl bg-white/20 px-3 py-1.5 text-[11px] font-extrabold text-white shadow-sm disabled:opacity-40"
+        >
+          Skip mulligan
+        </button>
+        <button
+          type="button"
+          onClick={() => {
+            setHandActionSelectedIds([]);
+            setHandActionMode(null);
+          }}
+          className="rounded-2xl bg-white/15 px-3 py-1.5 text-[11px] font-extrabold text-white shadow-sm"
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
   ) : handActionMode === "black_sea" ? (
     <div className="space-y-2">
       <div className="text-[11px] font-semibold text-white/80">
@@ -1405,6 +1484,24 @@ export default function Game() {
         className="rounded-2xl bg-sky-400 px-3 py-1.5 text-[11px] font-extrabold text-slate-950 shadow-sm"
       >
         Draw
+      </button>
+    </div>
+  ) : chapterMulliganAvailable && !handActionModeActive ? (
+    <div className="space-y-2">
+      <div className="text-[11px] font-semibold text-white/80">
+        Chapter mulligan available: one controlled seat may mulligan once before the first manifestation.
+      </div>
+      <button
+        type="button"
+        onClick={() => {
+          setSelectedCardId(null);
+          setHandActionSelectedIds([]);
+          setHandActionMode("mulligan");
+        }}
+        disabled={!canUseChapterMulliganForSelected}
+        className="rounded-2xl bg-sky-400 px-3 py-1.5 text-[11px] font-extrabold text-slate-950 shadow-sm disabled:opacity-40"
+      >
+        Open mulligan
       </button>
     </div>
   ) : null;
@@ -1709,6 +1806,7 @@ export default function Game() {
                         await endActions(gameId, uid);
                       })
                     }
+                    actionSeatHint={selectedSeat}
                     played={played}
                     valueChoicesBySeat={playedValueChoicesBySeat}
                     valueMultiplierBySeat={playedValueMultiplierBySeat}
@@ -1959,6 +2057,10 @@ export default function Game() {
                   if (prev.length >= 2) return prev;
                   return [...prev, cardId];
                 });
+                return;
+              }
+              if (handActionMode === "mulligan") {
+                setHandActionSelectedIds((prev) => (prev.includes(cardId) ? prev.filter((id) => id !== cardId) : [...prev, cardId]));
                 return;
               }
               setSelectedCardId((prev) => (prev === cardId ? null : cardId));

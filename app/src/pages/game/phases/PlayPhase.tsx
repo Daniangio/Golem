@@ -38,6 +38,7 @@ type PlayPhaseProps = {
   canConfirmSelection: boolean;
   onConfirmSelection: () => void;
   onEndActions: () => void;
+  actionSeatHint?: PlayerSlot | null;
   played: GameDoc["played"];
   valueChoicesBySeat: Partial<
     Record<
@@ -115,6 +116,7 @@ export function PlayPhase({
   canConfirmSelection,
   onConfirmSelection,
   onEndActions,
+  actionSeatHint,
   played,
   valueChoicesBySeat,
   valueMultiplierBySeat,
@@ -173,6 +175,13 @@ export function PlayPhase({
     const seatName = seatUid ? playerLabel(seatUid, playerNames) : seatLabel(actionsSeat);
     return `${seatLabel(actionsSeat)} • ${seatName}`;
   }, [actionsSeat, playerNames, players]);
+
+  const openActionSeat = (seat: PlayerSlot | null | undefined) => {
+    if (!seat) return;
+    if (pulsePhase !== "actions") return;
+    if (!hasAnyAction(seat)) return;
+    setActionsSeat((prev) => (prev === seat ? null : seat));
+  };
 
   const playedCardsGrid = (
     <div className="mt-1 grid min-h-0 grid-cols-3 gap-1.5">
@@ -242,10 +251,7 @@ export function PlayPhase({
           <button
             key={seat}
             type="button"
-            onClick={() => {
-              if (!canOpenActions) return;
-              setActionsSeat((prev) => (prev === seat ? null : seat));
-            }}
+            onClick={() => openActionSeat(canOpenActions ? seat : null)}
             disabled={!canOpenActions}
             className={`relative rounded-2xl bg-white/5 p-2 text-left ring-1 transition ${
               isActionSeat ? "ring-emerald-200/40" : "ring-white/10"
@@ -410,14 +416,24 @@ export function PlayPhase({
       <div className="text-center text-xs font-semibold text-white/80">Akashic Reservoir</div>
       <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
         {reservoir ? (
-          <div className="flex flex-col items-center gap-2">
+          <button
+            type="button"
+            onClick={() => openActionSeat(actionSeatHint)}
+            disabled={!actionSeatHint || pulsePhase !== "actions" || !hasAnyAction(actionSeatHint)}
+            className="flex flex-col items-center gap-2 rounded-xl transition disabled:opacity-100"
+          >
             <PulseCardPreview card={reservoir} />
-          </div>
+          </button>
         ) : null}
         {reservoir2 ? (
-          <div className="flex flex-col items-center gap-2">
+          <button
+            type="button"
+            onClick={() => openActionSeat(actionSeatHint)}
+            disabled={!actionSeatHint || pulsePhase !== "actions" || !hasAnyAction(actionSeatHint)}
+            className="flex flex-col items-center gap-2 rounded-xl transition disabled:opacity-100"
+          >
             <PulseCardPreview card={reservoir2} />
-          </div>
+          </button>
         ) : null}
         {!reservoir && !reservoir2 ? <div className="text-sm text-white/60">No reservoir.</div> : null}
       </div>
