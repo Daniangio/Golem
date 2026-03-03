@@ -27,6 +27,7 @@ export function PlayerBottomPanel({
   desktopIdlePanel,
   hiddenNote,
   selectedCardActionButtons,
+  highlightSelectedCards = false,
 }: {
   mobileLayout?: boolean;
   seatTag: string;
@@ -50,12 +51,14 @@ export function PlayerBottomPanel({
   icons?: React.ReactNode;
   desktopIdlePanel?: React.ReactNode;
   hiddenNote?: React.ReactNode;
+  highlightSelectedCards?: boolean;
   selectedCardActionButtons?: Array<{
     key: string;
     label: string;
     onClick: () => void;
     disabled?: boolean;
     className?: string;
+    anchorCardId?: string;
   }>;
 }) {
   const mobileCardClass = "h-[102px] w-[68px] rounded-xl";
@@ -69,7 +72,12 @@ export function PlayerBottomPanel({
           hand.map((c) => {
             const selected = selectedCardIds ? selectedCardIds.includes(c.id) : selectedCardId === c.id;
             return (
-              <div key={c.id} className={`relative shrink-0 pt-6 ${mobileLayout ? "-ml-4 first:ml-0" : ""}`}>
+              <div
+                key={c.id}
+                className={`relative shrink-0 pt-6 transition-transform ${
+                  mobileLayout ? "-ml-4 first:ml-0" : ""
+                } ${selected && highlightSelectedCards ? "-translate-y-2" : ""}`}
+              >
                 <PulseCardMini
                   card={c}
                   selected={selected}
@@ -109,17 +117,19 @@ export function PlayerBottomPanel({
                         Transmute
                       </button>
                     )}
-                    {(selectedCardActionButtons ?? []).map((action) => (
-                      <button
-                        key={action.key}
-                        type="button"
-                        onClick={action.onClick}
-                        disabled={busy || action.disabled}
-                        className={`${topCardActionBtnClass} ${action.className ?? ""}`}
-                      >
-                        {action.label}
-                      </button>
-                    ))}
+                    {(selectedCardActionButtons ?? []).map((action) =>
+                      action.anchorCardId && action.anchorCardId !== c.id ? null : (
+                        <button
+                          key={action.key}
+                          type="button"
+                          onClick={action.onClick}
+                          disabled={busy || action.disabled}
+                          className={`${topCardActionBtnClass} ${action.className ?? ""}`}
+                        >
+                          {action.label}
+                        </button>
+                      )
+                    )}
                   </div>
                 )}
               </div>

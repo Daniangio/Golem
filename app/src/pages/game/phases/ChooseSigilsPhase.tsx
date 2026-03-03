@@ -67,7 +67,7 @@ export function ChooseSigilsPhase({
         <div
           className={`rounded-2xl bg-slate-950/90 p-2 ring-1 ${
             selectedBySeat ? "ring-emerald-200/40" : "ring-white/10"
-          } ${isMobileLayout ? "min-h-[220px]" : "h-[118px]"}`}
+          } ${isMobileLayout ? "min-h-[220px]" : "min-h-[220px]"}`}
         >
           <div className="flex items-center justify-between gap-2">
             <div className="line-clamp-1 text-[11px] font-extrabold text-white">{sigil.name}</div>
@@ -75,7 +75,7 @@ export function ChooseSigilsPhase({
               T{sigil.tier}
             </span>
           </div>
-          <div className={`mt-1 text-[10px] leading-relaxed text-white/75 ${isMobileLayout ? "line-clamp-6" : "line-clamp-3"}`}>
+          <div className={`mt-1 text-[10px] leading-relaxed text-white/75 ${isMobileLayout ? "line-clamp-6" : ""}`}>
             {sigil.text}
           </div>
           <div className="mt-2 flex items-center justify-between">
@@ -198,7 +198,7 @@ export function ChooseSigilsPhase({
         </span>
       </div>
 
-      <div className="mt-3 min-h-0 flex-1 overflow-y-hidden pr-1">{list}</div>
+      <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">{list}</div>
     </div>
   );
 }

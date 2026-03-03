@@ -76,8 +76,8 @@ type PlayPhaseProps = {
   canAmplifySeat: (seat: PlayerSlot) => boolean;
   canResonanceGiftSeat: (seat: PlayerSlot) => boolean;
   resonanceGiftTargetBySeat?: Partial<Record<PlayerSlot, PlayerSlot | null>>;
-  onSwapR1: (seat: PlayerSlot) => void;
-  onSwapR2: (seat: PlayerSlot) => void;
+  onSwapR1: (seat: PlayerSlot, manifestedCardId?: string) => void;
+  onSwapR2: (seat: PlayerSlot, manifestedCardId?: string) => void;
   onFuse: (seat: PlayerSlot) => void;
   onAmplify: (seat: PlayerSlot) => void;
   onSetResonanceGiftSeat: (seat: PlayerSlot, target: PlayerSlot | null) => void;
@@ -182,6 +182,19 @@ export function PlayPhase({
     if (!hasAnyAction(seat)) return;
     setActionsSeat((prev) => (prev === seat ? null : seat));
   };
+  const actionSeatManifestedCards: PulseCard[] = useMemo(() => {
+    if (!actionsSeat) return [];
+    const entry = played?.[actionsSeat];
+    if (!entry?.card) return [];
+    const extraCards = Array.isArray(entry.additionalCards)
+      ? entry.additionalCards
+      : entry.extraCard
+        ? [entry.extraCard]
+        : [];
+    return [entry.card, ...extraCards];
+  }, [actionsSeat, played]);
+  const actionManifestedLabel = (card: PulseCard) =>
+    `${card.suit.toUpperCase()} ${card.suit === "prism" ? card.prismRange ?? "?" : card.value ?? "?"}`;
 
   const playedCardsGrid = (
     <div className="mt-1 grid min-h-0 grid-cols-3 gap-1.5">
@@ -303,18 +316,13 @@ export function PlayPhase({
                             transform: `translate(${cardIndex * stackShift}px, ${cardIndex * stackShift}px)`,
                             zIndex: cardIndex + 1,
                           }}
-                          onClick={(event) => {
-                            if (canCycleThis) event.stopPropagation();
-                          }}
                         >
                           <PulseCardMini
                             card={manifestedCard}
                             selected={false}
                             lift="none"
-                            onClick={() => {
-                              if (isPrimary && canCyclePrimary) onCycleCardValue(seat, "primary");
-                              if (isFirstExtra && canCycleExtra) onCycleCardValue(seat, "extra");
-                            }}
+                            className="pointer-events-none"
+                            onClick={() => {}}
                           />
                           {seatValueMultiplier > 1 && (
                             <div className="pointer-events-none absolute right-1 top-1 rounded-full bg-indigo-500/35 px-1.5 py-0.5 text-[10px] font-extrabold text-indigo-100 ring-1 ring-indigo-200/30">
@@ -347,7 +355,7 @@ export function PlayPhase({
                             )}
                           {displayValue !== null && (
                             <div
-                              className={`absolute left-1/2 top-0 -translate-x-1/2 rounded-full px-2 py-0.5 text-[10px] font-extrabold shadow ring-1 ${
+                              className={`absolute left-1/2 top-0 -translate-x-1/2 rounded-full px-2.5 py-0.5 text-[11px] font-extrabold shadow ring-1 ${
                                 canCycleThis
                                   ? "cursor-pointer bg-emerald-400 text-slate-950 ring-emerald-200/60"
                                   : "bg-slate-900/85 text-white/90 ring-white/20"
@@ -360,7 +368,7 @@ export function PlayPhase({
                               }}
                               title={
                                 canCycleThis
-                                  ? "Click card or badge to cycle value"
+                                  ? "Click this value badge to cycle value"
                                   : "Selected value used in resolution"
                               }
                             >
@@ -540,32 +548,74 @@ export function PlayPhase({
             </div>
 
             <div className="mt-3 grid gap-2">
-              {canSwapR1Seat(actionsSeat) && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    onSwapR1(actionsSeat);
-                    setActionsSeat(null);
-                  }}
-                  disabled={busy}
-                  className="rounded-2xl bg-white px-3 py-2 text-[12px] font-extrabold text-slate-900 shadow disabled:opacity-40"
-                >
-                  Swap with Reservoir 1
-                </button>
-              )}
-              {canSwapR2Seat(actionsSeat) && (
-                <button
-                  type="button"
-                  onClick={() => {
-                    onSwapR2(actionsSeat);
-                    setActionsSeat(null);
-                  }}
-                  disabled={busy}
-                  className="rounded-2xl bg-white px-3 py-2 text-[12px] font-extrabold text-slate-900 shadow disabled:opacity-40"
-                >
-                  Swap with Reservoir 2
-                </button>
-              )}
+              {canSwapR1Seat(actionsSeat) &&
+                (actionSeatManifestedCards.length <= 1 ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSwapR1(actionsSeat, actionSeatManifestedCards[0]?.id);
+                      setActionsSeat(null);
+                    }}
+                    disabled={busy}
+                    className="rounded-2xl bg-white px-3 py-2 text-[12px] font-extrabold text-slate-900 shadow disabled:opacity-40"
+                  >
+                    Swap with Reservoir 1
+                  </button>
+                ) : (
+                  <div className="rounded-2xl bg-white/5 p-2 ring-1 ring-white/10">
+                    <div className="mb-2 text-[11px] font-semibold text-white/75">Swap with Reservoir 1</div>
+                    <div className="grid gap-1.5">
+                      {actionSeatManifestedCards.map((card) => (
+                        <button
+                          key={`swap-r1:${card.id}`}
+                          type="button"
+                          onClick={() => {
+                            onSwapR1(actionsSeat, card.id);
+                            setActionsSeat(null);
+                          }}
+                          disabled={busy}
+                          className="rounded-2xl bg-white px-3 py-1.5 text-left text-[11px] font-extrabold text-slate-900 shadow-sm disabled:opacity-40"
+                        >
+                          Swap {actionManifestedLabel(card)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              {canSwapR2Seat(actionsSeat) &&
+                (actionSeatManifestedCards.length <= 1 ? (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      onSwapR2(actionsSeat, actionSeatManifestedCards[0]?.id);
+                      setActionsSeat(null);
+                    }}
+                    disabled={busy}
+                    className="rounded-2xl bg-white px-3 py-2 text-[12px] font-extrabold text-slate-900 shadow disabled:opacity-40"
+                  >
+                    Swap with Reservoir 2
+                  </button>
+                ) : (
+                  <div className="rounded-2xl bg-white/5 p-2 ring-1 ring-white/10">
+                    <div className="mb-2 text-[11px] font-semibold text-white/75">Swap with Reservoir 2</div>
+                    <div className="grid gap-1.5">
+                      {actionSeatManifestedCards.map((card) => (
+                        <button
+                          key={`swap-r2:${card.id}`}
+                          type="button"
+                          onClick={() => {
+                            onSwapR2(actionsSeat, card.id);
+                            setActionsSeat(null);
+                          }}
+                          disabled={busy}
+                          className="rounded-2xl bg-white px-3 py-1.5 text-left text-[11px] font-extrabold text-slate-900 shadow-sm disabled:opacity-40"
+                        >
+                          Swap {actionManifestedLabel(card)}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                ))}
               {canFuseSeat(actionsSeat) && (
                 <button
                   type="button"

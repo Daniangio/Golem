@@ -1479,6 +1479,7 @@ export async function playCard(gameId: string, actorUid: string, seat: PlayerSlo
 
     if (data.status !== "active") throw new Error("Game is not active.");
     if (data.phase !== "play") throw new Error("Not in play phase.");
+    if (canUseChapterMulligan(data)) throw new Error("Use or skip the chapter mulligan before the first manifestation.");
     const pulsePhase = (data.pulsePhase ?? "selection") as any;
     if (pulsePhase !== "selection" && pulsePhase !== "pre_selection") throw new Error("Not in selection phase.");
     if (pulsePhase === "selection" && data.exchange) throw new Error("Resolve the Communion exchange first.");
@@ -1615,6 +1616,7 @@ export async function playDiscardSigilCard(gameId: string, actorUid: string, sea
 
     if (data.status !== "active") throw new Error("Game is not active.");
     if (data.phase !== "play") throw new Error("Not in play phase.");
+    if (canUseChapterMulligan(data)) throw new Error("Use or skip the chapter mulligan before the first manifestation.");
     const pulsePhase = (data.pulsePhase ?? "selection") as any;
     if (pulsePhase !== "selection" && pulsePhase !== "pre_selection") throw new Error("Not in selection phase.");
     if (pulsePhase === "selection" && data.exchange) throw new Error("Resolve the Communion exchange first.");
@@ -2667,7 +2669,13 @@ export async function useFuse(gameId: string, actorUid: string, seat: PlayerSlot
   });
 }
 
-export async function swapWithReservoir(gameId: string, actorUid: string, seat: PlayerSlot, reservoirSlot: 1 | 2 = 1) {
+export async function swapWithReservoir(
+  gameId: string,
+  actorUid: string,
+  seat: PlayerSlot,
+  reservoirSlot: 1 | 2 = 1,
+  manifestedCardId?: string
+) {
   const gameRef = doc(db, "games", gameId);
 
   await runTransaction(db, async (tx) => {
@@ -2693,25 +2701,58 @@ export async function swapWithReservoir(gameId: string, actorUid: string, seat: 
     const entry = played[seat];
     if (!entry?.card) throw new Error("Seat has not played a card.");
 
-    const nextReservoir = entry.card as PulseCard;
-    const {
-      valueOverride: _oldOverride,
-      valueChoice: _oldChoice,
-      postRevealValueDelta: _oldPostRevealDelta,
-      disableResonanceRefill: _oldDisableResonanceRefill,
-      ...rest
-    } = entry;
-    played[seat] = { ...rest, card: reservoir };
+    const manifested = manifestedCards(entry as any);
+    if (!manifested.length) throw new Error("Seat has no manifested cards.");
+    const replacedCard = manifestedCardId ? manifested.find((card) => card.id === manifestedCardId) ?? null : manifested[0] ?? null;
+    if (!replacedCard) throw new Error("Selected manifested card is no longer available.");
+
+    const additionalCards = Array.isArray(entry.additionalCards)
+      ? [...entry.additionalCards]
+      : entry.extraCard
+        ? [entry.extraCard]
+        : [];
+    const replacingPrimary = entry.card?.id === replacedCard.id;
+    if (replacingPrimary) {
+      const {
+        valueOverride: _oldOverride,
+        valueChoice: _oldChoice,
+        postRevealValueDelta: _oldPostRevealDelta,
+        disableResonanceRefill: _oldDisableResonanceRefill,
+        ...rest
+      } = entry;
+      played[seat] = {
+        ...rest,
+        card: reservoir,
+        extraCard: additionalCards[0],
+        additionalCards,
+      };
+    } else {
+      const targetIndex = additionalCards.findIndex((card) => card.id === replacedCard.id);
+      if (targetIndex < 0) throw new Error("Selected manifested card cannot be swapped.");
+      const nextAdditional = [...additionalCards];
+      nextAdditional[targetIndex] = reservoir;
+      const nextEntry = {
+        ...entry,
+        extraCard: nextAdditional[0],
+        additionalCards: nextAdditional,
+      } as any;
+      if (targetIndex === 0 && typeof nextEntry.extraValueChoice === "number") {
+        delete nextEntry.extraValueChoice;
+      }
+      played[seat] = nextEntry;
+    }
+
+    const nextReservoir = replacedCard as PulseCard;
 
     const location = getLocationById(data.locationId ?? null);
     const locationEffects = location?.effects ?? [];
     const swapCostEffect = locationEffects.find((e) => e?.type === "swap_friction_cost");
     let cost = swapCostEffect ? Math.max(0, Number((swapCostEffect as any).amount) || 0) : 1;
-    if (hasEffect(effectsForSeat(data, seat), "free_swap_on_suit_resonance") && entry.card?.suit === reservoir.suit) {
+    if (hasEffect(effectsForSeat(data, seat), "free_swap_on_suit_resonance") && replacedCard.suit === reservoir.suit) {
       cost = 0;
     }
     const sigilZeroSwap = effectsForSeat(data, seat).find((e) => e?.type === "swap_friction_zero_if_replaced_suit") as any;
-    if (sigilZeroSwap?.suit && entry.card?.suit === sigilZeroSwap.suit) {
+    if (sigilZeroSwap?.suit && replacedCard.suit === sigilZeroSwap.suit) {
       cost = 0;
     }
 
@@ -3896,6 +3937,29 @@ export async function completeGame(gameId: string, hostUid: string) {
     status: "completed",
     completedAt: serverTimestamp(),
     updatedAt: serverTimestamp(),
+  });
+}
+
+export async function surrenderGame(gameId: string, actorUid: string) {
+  const gameRef = doc(db, "games", gameId);
+
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(gameRef);
+    if (!snap.exists()) throw new Error("Game not found.");
+    const data = snap.data() as GameDoc;
+
+    if (data.status !== "active") throw new Error("Only active games can be surrendered.");
+    const players = data.players ?? {};
+    const isSeatedPlayer = SLOTS.some((seat) => players[seat] === actorUid);
+    const isHost = data.createdBy === actorUid;
+    if (!isSeatedPlayer && !isHost) throw new Error("Only a current player can surrender.");
+
+    tx.update(gameRef, {
+      status: "completed" as GameStatus,
+      endedReason: "loss" as const,
+      completedAt: serverTimestamp(),
+      updatedAt: serverTimestamp(),
+    });
   });
 }
 

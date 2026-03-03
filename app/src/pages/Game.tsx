@@ -6,6 +6,7 @@ import {
   confirmSigils,
   confirmParts,
   completeGame,
+  surrenderGame,
   confirmSelection,
   endActions,
   getMySlot,
@@ -323,6 +324,13 @@ export default function Game() {
     });
   }
 
+  async function onSurrender() {
+    return guarded(async () => {
+      if (!uid || !gameId) return;
+      await surrenderGame(gameId, uid);
+    });
+  }
+
   const sparkValue = game?.golem?.hp ?? 5;
   const frictionValue = game?.golem?.heat ?? 0;
 
@@ -487,6 +495,29 @@ export default function Game() {
     return () => window.clearTimeout(timer);
   }, [activeNotice]);
 
+  useEffect(() => {
+    if (!game || !uid) return;
+    if (handActionMode) return;
+    if (game.phase !== "play") return;
+
+    const pulsePhaseNow = game.pulsePhase ?? "selection";
+    if (pulsePhaseNow !== "selection" && pulsePhaseNow !== "pre_selection") return;
+    if ((game.step ?? 1) !== 1 || (game.terrainIndex ?? 0) !== 0) return;
+    if (Boolean(game.chapterGlobalUsed?.chapter_mulligan_locked)) return;
+
+    const playedNow = game.played ?? {};
+    const anyPlayed = SLOTS.some((seat) => Boolean(playedNow[seat]?.card));
+    if (anyPlayed) return;
+
+    const targetSeat = activeSeat ?? mySlot;
+    if (!targetSeat) return;
+    if (!canControlSeat(game, uid, targetSeat)) return;
+
+    setHandActionSelectedIds([]);
+    setSelectedCardId(null);
+    setHandActionMode("mulligan");
+  }, [game, uid, activeSeat, mySlot, handActionMode]);
+
   if (err) {
     return (
       <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900">
@@ -610,6 +641,7 @@ export default function Game() {
     isSharedPseudoUid(selectedUid) &&
     Boolean(uid && (players.p1 === uid || players.p2 === uid));
   const canSeeSelectedHand = Boolean(uid && selectedUid && (canControlSeat(game, uid, selectedSeat) || sharedSeatPublicView));
+  const canActForSelected = Boolean(uid && canControlSeat(game, uid, selectedSeat));
   const selectedHand = canSeeSelectedHand ? selectedHandRaw : [];
 
   const selectedCard = selectedHand.find((c) => c.id === selectedCardId) ?? null;
@@ -617,6 +649,7 @@ export default function Game() {
   const played = game.played ?? {};
   const skipThisPulse = game.skipThisPulse ?? {};
   const selectedSeatSkipped = Boolean(skipThisPulse[selectedSeat]);
+  const pulsePhase = game.pulsePhase ?? "selection";
   const chapterMulliganLocked = Boolean(game.chapterGlobalUsed?.chapter_mulligan_locked);
   const anySeatPlayedThisPulse = SLOTS.some((seat) => Boolean(played[seat]?.card));
   const chapterMulliganAvailable =
@@ -633,6 +666,7 @@ export default function Game() {
       actingSeat === selectedSeat &&
       canActForSelected
   );
+
   const haveAllPlayed = SLOTS.every(
     (s) => Boolean(players[s]) && (Boolean(skipThisPulse[s]) || Boolean(played[s]?.card))
   );
@@ -649,7 +683,6 @@ export default function Game() {
     : terrainDeck.slice(terrainIndex, Math.min(terrainDeck.length, terrainIndex + 1));
   const terrain = terrainSet[0] ?? null;
   const terrainRemaining = Math.max(0, terrainDeck.length - (terrainIndex + Math.max(1, terrainSet.length)));
-  const pulsePhase = game.pulsePhase ?? "selection";
   const currentPulseKey = `${Math.max(1, Number(game.chapter ?? 1))}:${Math.max(1, Number(game.step ?? 1))}:${Math.max(
     0,
     Number(game.terrainIndex ?? 0)
@@ -732,7 +765,6 @@ export default function Game() {
   });
 
   const seatList = SLOTS;
-  const canActForSelected = Boolean(uid && canControlSeat(game, uid, selectedSeat));
   const canManagePendingDiscardForSelected = Boolean(
     isDiscardSelectionPhase && pendingDiscardRequest && uid && canControlSeat(game, uid, selectedSeat)
   );
@@ -880,6 +912,7 @@ export default function Game() {
 
   const preSelectionSeats = SLOTS.filter((s) => seatHasEffect(s, "hide_terrain_until_played"));
   const preSelectionDone = preSelectionSeats.every((s) => skipThisPulse[s] || Boolean(played[s]?.card));
+  const pendingVeiledSeatReveal = preSelectionSeats.some((s) => !skipThisPulse[s] && !played[s]?.card);
 
   const ABILITY_EXTRA_CARD = "once_per_chapter_extra_card_after_reveal";
   const ABILITY_FUSE = "once_per_chapter_fuse_to_zero_after_reveal";
@@ -1073,6 +1106,7 @@ export default function Game() {
       onClick: () => void;
       disabled?: boolean;
       className?: string;
+      anchorCardId?: string;
     }>;
     if (exchange.status === "awaiting_offer" && canOfferExchange) {
       const canUseCard = Boolean(exchange.from && (hands[exchange.from] ?? []).some((c) => c.id === selectedCardId));
@@ -1103,6 +1137,34 @@ export default function Game() {
       ];
     }
     return [];
+  })();
+  const mulliganAnchorCardId = handActionMode === "mulligan" ? handActionSelectedIds[handActionSelectedIds.length - 1] ?? null : null;
+  const mulliganCardActions = (() => {
+    if (handActionMode !== "mulligan") return [] as Array<{
+      key: string;
+      label: string;
+      onClick: () => void;
+      disabled?: boolean;
+      className?: string;
+      anchorCardId?: string;
+    }>;
+    if (!mulliganAnchorCardId) return [];
+    return [
+      {
+        key: "mulligan-confirm",
+        label: "Mulligan",
+        onClick: () =>
+          void guarded(async () => {
+            if (!uid || !gameId || !actingSeat) return;
+            if (!handActionSelectedIds.length) return;
+            await useChapterMulligan(gameId, uid, actingSeat, handActionSelectedIds);
+            setHandActionSelectedIds([]);
+            setHandActionMode(null);
+          }),
+        disabled: !canUseChapterMulliganForSelected || !handActionSelectedIds.length,
+        anchorCardId: mulliganAnchorCardId,
+      },
+    ];
   })();
 
   const selectedAbilityUsed = game.chapterAbilityUsed?.[selectedSeat] ?? {};
@@ -1193,6 +1255,78 @@ export default function Game() {
       await setPlayedCardValueChoice(gameId, uid, seat, target, nextValue);
     });
   }
+
+  const quickActionButtons = !handActionModeActive
+    ? [
+        ...(canPlayFromDiscardSigilFromSelected
+          ? [
+              {
+                key: "play-from-discard",
+                label: "Manifest from discard",
+                className: "bg-violet-400 text-slate-950",
+                onClick: () => {
+                  setDiscardModalMode("play_from_discard");
+                  setShowDiscardModal(true);
+                },
+              },
+            ]
+          : []),
+        ...(canUseBlackSeaSigilFromSelected
+          ? [
+              {
+                key: "black-sea",
+                label: "Sigil of the Black Sea",
+                className: "bg-sky-400 text-slate-950",
+                onClick: () => {
+                  setSelectedCardId(null);
+                  setHandActionSelectedIds([]);
+                  setHandActionMode("black_sea");
+                },
+              },
+            ]
+          : []),
+        ...(canUseShatteredClayFromSelected
+          ? [
+              {
+                key: "shattered-clay",
+                label: "Shattered Clay ±3",
+                className:
+                  handActionMode === "shattered_clay"
+                    ? "bg-amber-200 text-slate-950"
+                    : "bg-amber-300 text-slate-950",
+                onClick: () => {
+                  setSelectedCardId(null);
+                  setHandActionSelectedIds([]);
+                  setHandActionMode((prev) => (prev === "shattered_clay" ? null : "shattered_clay"));
+                },
+              },
+            ]
+          : []),
+        ...((selectedHasEffect(ABILITY_SIGIL_TEMPERED_CRUCIBLE) &&
+        ["pre_selection", "selection", "actions", "discard_selection"].includes(pulsePhase) &&
+        (canUseTemperedCrucibleFromSelected ||
+          (temperedCrucibleActiveThisPulse &&
+            Boolean(game.chapterAbilityUsed?.[selectedSeat]?.[ABILITY_SIGIL_TEMPERED_CRUCIBLE]))))
+          ? [
+              {
+                key: "tempered-crucible",
+                label: temperedCrucibleActiveThisPulse
+                  ? "Tempered Crucible active (this Pulse)"
+                  : "Activate Tempered Crucible",
+                className: temperedCrucibleActiveThisPulse
+                  ? "bg-rose-200 text-rose-950"
+                  : "bg-rose-300 text-slate-950",
+                disabled: !canUseTemperedCrucibleFromSelected,
+                onClick: () =>
+                  void guarded(async () => {
+                    if (!uid || !gameId || !actingSeat) return;
+                    await useTemperedCrucible(gameId, uid, actingSeat);
+                  }),
+              },
+            ]
+          : []),
+      ]
+    : [];
 
   const bottomMessage = isRecoverSelectionPhase ? (
     pendingRecover?.reason === "recursive_form_recover" && pendingRecoverSeats.includes(selectedSeat) ? (
@@ -1322,26 +1456,10 @@ export default function Game() {
   ) : handActionMode === "mulligan" ? (
     <div className="space-y-2">
       <div className="text-[11px] font-semibold text-white/80">
-        Global chapter mulligan: select any number of cards, place them at deck bottom, then draw the same amount.
+        Global chapter mulligan (pre-game): select any number of cards, then confirm from the button above the last selected card.
       </div>
       <div className="text-[11px] text-white/65">Selected {handActionSelectedIds.length} card(s).</div>
       <div className="flex flex-wrap gap-2">
-        <button
-          type="button"
-          onClick={() =>
-            void guarded(async () => {
-              if (!uid || !gameId || !actingSeat) return;
-              if (!handActionSelectedIds.length) return;
-              await useChapterMulligan(gameId, uid, actingSeat, handActionSelectedIds);
-              setHandActionSelectedIds([]);
-              setHandActionMode(null);
-            })
-          }
-          disabled={busy || !canUseChapterMulliganForSelected || !handActionSelectedIds.length}
-          className="rounded-2xl bg-sky-400 px-3 py-1.5 text-[11px] font-extrabold text-slate-950 shadow-sm disabled:opacity-40"
-        >
-          Mulligan
-        </button>
         <button
           type="button"
           onClick={() =>
@@ -1362,8 +1480,9 @@ export default function Game() {
           onClick={() => {
             setHandActionSelectedIds([]);
             setHandActionMode(null);
-          }}
-          className="rounded-2xl bg-white/15 px-3 py-1.5 text-[11px] font-extrabold text-white shadow-sm"
+            }}
+          className="rounded-2xl bg-white/15 px-3 py-1.5 text-[11px] font-extrabold text-white shadow-sm disabled:opacity-40"
+          disabled={busy}
         >
           Cancel
         </button>
@@ -1469,23 +1588,6 @@ export default function Game() {
         </button>
       </div>
     </div>
-  ) : canUseBlackSeaSigilFromSelected && !handActionModeActive ? (
-    <div className="space-y-2">
-      <div className="text-[11px] font-semibold text-white/80">
-        Sigil of the Black Sea: discard any number of cards, then draw the same amount (+1 Friction).
-      </div>
-      <button
-        type="button"
-        onClick={() => {
-          setSelectedCardId(null);
-          setHandActionSelectedIds([]);
-          setHandActionMode("black_sea");
-        }}
-        className="rounded-2xl bg-sky-400 px-3 py-1.5 text-[11px] font-extrabold text-slate-950 shadow-sm"
-      >
-        Draw
-      </button>
-    </div>
   ) : chapterMulliganAvailable && !handActionModeActive ? (
     <div className="space-y-2">
       <div className="text-[11px] font-semibold text-white/80">
@@ -1503,6 +1605,25 @@ export default function Game() {
       >
         Open mulligan
       </button>
+    </div>
+  ) : quickActionButtons.length > 0 ? (
+    <div className="space-y-2">
+      <div className="text-[11px] font-semibold text-white/80">
+        Available actions for this seat:
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {quickActionButtons.map((action) => (
+          <button
+            key={action.key}
+            type="button"
+            onClick={action.onClick}
+            disabled={busy || action.disabled}
+            className={`rounded-2xl px-3 py-1.5 text-[11px] font-extrabold shadow-sm disabled:opacity-40 ${action.className}`}
+          >
+            {action.label}
+          </button>
+        ))}
+      </div>
     </div>
   ) : null;
   return (
@@ -1605,6 +1726,20 @@ export default function Game() {
                 ⓘ
               </button>
             ) : null}
+            {isPlayer && (
+              <button
+                type="button"
+                onClick={() => {
+                  if (!window.confirm("Surrender this run? This immediately ends the game as a loss.")) return;
+                  void onSurrender();
+                }}
+                disabled={busy}
+                className="shrink-0 rounded-xl bg-rose-500/90 px-2 py-1 text-[11px] font-extrabold text-white ring-1 ring-rose-200/30 hover:bg-rose-400 disabled:opacity-50"
+                title="Surrender game"
+              >
+                Surrender
+              </button>
+            )}
           </div>
         </div>
 
@@ -1764,7 +1899,7 @@ export default function Game() {
                     terrainDeckLength={terrainDeck.length}
                     terrainRemaining={terrainRemaining}
                     canPeekTerrainDeck={
-                      !isPreSelection &&
+                      !pendingVeiledSeatReveal &&
                       (locationConductorOnlyTerrain
                         ? !conductorSeat || selectedSeat === conductorSeat
                         : SLOTS.some((s) => seatHasEffect(s, "peek_terrain_deck")))
@@ -1773,7 +1908,7 @@ export default function Game() {
                     terrain={terrain}
                     terrainSet={terrainSet}
                     terrainHiddenState={
-                      isPreSelection
+                      pendingVeiledSeatReveal
                         ? "pre_selection"
                         : !canSelectedSeatSeeTerrainRange
                           ? "suit_only"
@@ -1983,16 +2118,16 @@ export default function Game() {
                       acc[seat] = (entry?.resonanceGiftSeat as PlayerSlot | null | undefined) ?? null;
                       return acc;
                     }, {} as Partial<Record<PlayerSlot, PlayerSlot | null>>)}
-                    onSwapR1={(seat) =>
+                    onSwapR1={(seat, manifestedCardId) =>
                       void guarded(async () => {
                         if (!uid || !gameId) return;
-                        await swapWithReservoir(gameId, uid, seat, 1);
+                        await swapWithReservoir(gameId, uid, seat, 1, manifestedCardId);
                       })
                     }
-                    onSwapR2={(seat) =>
+                    onSwapR2={(seat, manifestedCardId) =>
                       void guarded(async () => {
                         if (!uid || !gameId) return;
-                        await swapWithReservoir(gameId, uid, seat, 2);
+                        await swapWithReservoir(gameId, uid, seat, 2, manifestedCardId);
                       })
                     }
                     onFuse={(seat) =>
@@ -2091,7 +2226,8 @@ export default function Game() {
                 await useLensOfTiphareth(gameId, uid, actingSeat, selectedCardId);
               })
             }
-            selectedCardActionButtons={exchangeCardActions}
+            selectedCardActionButtons={[...exchangeCardActions, ...mulliganCardActions]}
+            highlightSelectedCards={handActionMode === "mulligan"}
             handCount={selectedHandRaw.length}
             busy={busy}
             icons={
@@ -2119,65 +2255,6 @@ export default function Game() {
                 >
                   🗑 <span className="font-semibold text-white/70">{discardAll.length}</span>
                 </button>
-                {canPlayFromDiscardSigilFromSelected && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setDiscardModalMode("play_from_discard");
-                      setShowDiscardModal(true);
-                    }}
-                    className="flex h-9 items-center gap-1 rounded-2xl bg-violet-400/85 px-2 text-[11px] font-extrabold text-slate-950 ring-1 ring-violet-200/30 hover:bg-violet-300"
-                    title="Manifest from discard (once per Sphere)"
-                  >
-                    ✶ Discard
-                  </button>
-                )}
-                {canUseShatteredClayFromSelected && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSelectedCardId(null);
-                      setHandActionSelectedIds([]);
-                      setHandActionMode((prev) => (prev === "shattered_clay" ? null : "shattered_clay"));
-                    }}
-                    className={`flex h-9 items-center gap-1 rounded-2xl px-2 text-[11px] font-extrabold ring-1 ${
-                      handActionMode === "shattered_clay"
-                        ? "bg-amber-200 text-slate-950 ring-amber-100/60"
-                        : "bg-amber-300/80 text-slate-950 ring-amber-200/30 hover:bg-amber-200"
-                    }`}
-                    title="Discard 2 same-suit cards to shift value ±3"
-                  >
-                    ◇ ±3
-                  </button>
-                )}
-                {(selectedHasEffect(ABILITY_SIGIL_TEMPERED_CRUCIBLE) &&
-                  ["pre_selection", "selection", "actions", "discard_selection"].includes(pulsePhase) &&
-                  (canUseTemperedCrucibleFromSelected ||
-                    (temperedCrucibleActiveThisPulse &&
-                      Boolean(game.chapterAbilityUsed?.[selectedSeat]?.[ABILITY_SIGIL_TEMPERED_CRUCIBLE])))) && (
-                  <button
-                    type="button"
-                    onClick={() =>
-                      void guarded(async () => {
-                        if (!uid || !gameId || !actingSeat) return;
-                        await useTemperedCrucible(gameId, uid, actingSeat);
-                      })
-                    }
-                    disabled={busy || !canUseTemperedCrucibleFromSelected}
-                    className={`flex h-9 items-center gap-1 rounded-2xl px-2 text-[11px] font-extrabold ring-1 ${
-                      temperedCrucibleActiveThisPulse
-                        ? "bg-rose-200 text-rose-950 ring-rose-100/80"
-                        : "bg-rose-300/80 text-slate-950 ring-rose-200/30 hover:bg-rose-200"
-                    } disabled:opacity-50`}
-                    title={
-                      temperedCrucibleActiveThisPulse
-                        ? "Tempered Crucible active for this Pulse"
-                        : "Ignore all Friction for this Pulse (once per Sphere)"
-                    }
-                  >
-                    ♨ Temper
-                  </button>
-                )}
                 <button
                   type="button"
                   onClick={() => setShowLogModal(true)}
