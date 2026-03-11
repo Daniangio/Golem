@@ -42,7 +42,7 @@
     { "suit": "cinder", "min": 15, "max": 21 },
     { "suit": "cinder", "min": 16, "max": 22 }
   ],
-  "sphere_5_6": [
+  "sphere_5_6_9": [
     { "suit": "ether", "min": 1, "max": 6 },
     { "suit": "ether", "min": 2, "max": 7 },
     { "suit": "ether", "min": 3, "max": 8 },
@@ -84,7 +84,7 @@
     { "suit": "cinder", "min": 2, "max": 6 },
     { "suit": "cinder", "min": 4, "max": 8 }
   ],
-  "sphere_8_9": [
+  "sphere_8_10": [
     { "suit": "ether", "min": 1, "max": 4 },
     { "suit": "ether", "min": 3, "max": 6 },
     { "suit": "ether", "min": 5, "max": 8 },

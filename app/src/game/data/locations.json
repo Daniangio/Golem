@@ -178,7 +178,7 @@
   {
     "id": "S5_TIPHARETH_COMMUNION_CORE",
     "sphere": 5,
-    "terrainDeckType": "sphere_5_6",
+    "terrainDeckType": "sphere_5_6_9",
     "name": "Tiphareth: The Communion Core",
     "image": "/images/locations/5-Tiphareth-The Communion Core.jpg",
     "flavor": "“Many streams, one heart. Every faculty offers a fragment to the center before the center speaks for all.”",
@@ -195,7 +195,7 @@
   {
     "id": "S5_TIPHARETH_CHAOTIC_MANDALA",
     "sphere": 5,
-    "terrainDeckType": "sphere_5_6",
+    "terrainDeckType": "sphere_5_6_9",
     "terrainCardsPerRun": 15,
     "name": "Tiphareth: The Chaotic Mandala",
     "image": "/images/locations/5-Tiphareth-The Chaotic Mandala.jpg",
@@ -209,7 +209,7 @@
   {
     "id": "S5_TIPHARETH_HERALDS_STRAIN",
     "sphere": 5,
-    "terrainDeckType": "sphere_5_6",
+    "terrainDeckType": "sphere_5_6_9",
     "name": "Tiphareth: Herald’s Strain",
     "image": "/images/locations/5-Tiphareth-Heralds Strain.jpg",
     "flavor": "“One voice declares the Law’s tone. Every dissonant response adds strain to the vessel.”",
@@ -222,7 +222,7 @@
   {
     "id": "S6_GEVURAH_CRUCIBLE_OF_EXCESS",
     "sphere": 6,
-    "terrainDeckType": "sphere_5_6",
+    "terrainDeckType": "sphere_5_6_9",
     "name": "Gevurah: The Crucible of Excess",
     "image": "/images/locations/6-Gevurah-The Crucible of Excess.jpg",
     "flavor": "“Judgment demands absolute expenditure. A single card is never enough to satisfy the Crucible.”",
@@ -236,7 +236,7 @@
   {
     "id": "S6_GEBURAH_THE_PYRE_OF_AMPLIFICATION",
     "sphere": 6,
-    "terrainDeckType": "sphere_5_6",
+    "terrainDeckType": "sphere_5_6_9",
     "name": "Geburah: The Pyre of Amplification",
     "image": "/images/locations/6-Gevurah-The Pyre of Amplification.jpg",
     "flavor": "“Each spark feeds the sentence. In the Pyre, one flame is power; many flames are annihilation.”",
@@ -250,7 +250,7 @@
   {
     "id": "S6_GEBURAH_THE_REGISTRAR_OF_SEVERITY",
     "sphere": 6,
-    "terrainDeckType": "sphere_5_6",
+    "terrainDeckType": "sphere_5_6_9",
     "name": "Geburah: The Registrar of Severity",
     "image": "/images/locations/6-Gevurah-The Registrar of Severity.jpg",
     "flavor": "“The Record does not advise—it amplifies what mirrors it.”",
@@ -303,7 +303,7 @@
   {
     "id": "S8_BINAH_THE_DOUBLE_SEAL",
     "sphere": 8,
-    "terrainDeckType": "sphere_8_9",
+    "terrainDeckType": "sphere_8",
     "name": "Binah: The Double Seal",
     "image": "/images/locations/8-Binah-The Double Seal.jpg",
     "flavor": "“Understanding is not a fleeting spark, but a dwelling within the structure. To advance, the vibration must be proven twice.”",
@@ -317,7 +317,7 @@
   {
     "id": "S8_BINAH_THE_PRIMORDIAL_SEA",
     "sphere": 8,
-    "terrainDeckType": "sphere_8_9",
+    "terrainDeckType": "sphere_8",
     "name": "Binah: The Primordial Sea",
     "image": "/images/locations/8-Binah-The Primordial Sea.jpg",
     "flavor": "“The Waters of Marah are deep and bitter. In the Great Sea, every action draws from the limited pool of pre-existent Form.”",
@@ -331,7 +331,7 @@
   {
     "id": "S8_BINAH_THE_PALACE_OF_UNDERSTANDING",
     "sphere": 8,
-    "terrainDeckType": "sphere_8_9",
+    "terrainDeckType": "sphere_8",
     "name": "Binah: The Palace of Understanding",
     "image": "/images/locations/8-Binah-The Palace of Understanding.jpg",
     "flavor": "“The Mother speaks in a whisper only the Conductor can hear. The rest must trust in the elemental weight of the suits.”",
