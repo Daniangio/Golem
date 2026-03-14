@@ -23,6 +23,7 @@ import type {
   PendingDiscardSeatRequest,
   PendingDiscardState,
   PendingRecoverState,
+  PlayedCards,
   PlayerSlot,
   Players,
   PulseCard,
@@ -126,6 +127,31 @@ function manifestedCount(entry: { card?: PulseCard; extraCard?: PulseCard; addit
   return manifestedCards(entry).length;
 }
 
+function requiredManifestedCountForSeat(
+  data: Pick<GameDoc, "locationId" | "partPicks" | "players"> & Partial<Pick<GameDoc, "gameMode">>,
+  seat: PlayerSlot,
+  hands: SeatHands,
+  played: PlayedCards
+): number {
+  const location = getLocationById(data.locationId ?? null);
+  const locationEffects = location?.effects ?? [];
+  const hasConductorRule = locationEffects.some((effect) => effect?.type === "conductor_plays_three_cards");
+  const conductor = hasConductorRule ? conductorSeat(data) : null;
+  if (hasConductorRule && conductor === seat) {
+    const current = manifestedCount(played[seat]);
+    const remaining = (hands[seat] ?? []).length;
+    return Math.min(3, current + remaining);
+  }
+
+  const autoManifestCount = autoManifestCountPerPlayer(data);
+  if (autoManifestCount > 0) {
+    const current = manifestedCount(played[seat]);
+    return Math.min(autoManifestCount + 1, current + (hands[seat] ?? []).length);
+  }
+
+  return 1;
+}
+
 function conductorSeat(data: Pick<GameDoc, "partPicks">): PlayerSlot | null {
   return SLOTS.find((seat) => seatHasPart(data, seat, "conductor_of_streams")) ?? null;
 }
@@ -156,6 +182,186 @@ function applyConductorTransfersForPulse(
   }
 
   return { hands: handsRaw, skipThisPulse, conductorPasses };
+}
+
+function prePulseConductorExchangeSeat(
+  data: Pick<GameDoc, "locationId" | "partPicks"> & Partial<Pick<GameDoc, "gameMode">>
+): PlayerSlot | null {
+  if (data.gameMode === "tutorial") return null;
+  if (!locationHasEffect(data.locationId, "pre_pulse_conductor_exchange_and_skip")) return null;
+  return conductorSeat(data);
+}
+
+function autoManifestCountPerPlayer(
+  data: Pick<GameDoc, "locationId"> & Partial<Pick<GameDoc, "gameMode">>
+): number {
+  if (data.gameMode === "tutorial") return 0;
+  const location = getLocationById(data.locationId ?? null);
+  const effect = location?.effects?.find((entry) => entry?.type === "auto_manifest_from_pulse_deck_each_player") as
+    | { count?: number }
+    | undefined;
+  return Math.max(0, Number(effect?.count) || 0);
+}
+
+function initialPulsePhase(
+  data: Pick<GameDoc, "locationId" | "partPicks" | "players" | "targetPlayers"> & Partial<Pick<GameDoc, "gameMode">>,
+  skipThisPulse: Partial<Record<PlayerSlot, boolean>>,
+  played: PlayedCards
+): GameDoc["pulsePhase"] {
+  const preSeats = preSelectionSeats(data);
+  if (!preSeats.length) return "selection";
+  const preDoneBase = preSeats.every((seat) => skipThisPulse[seat] || Boolean(played[seat]?.card));
+  const sharedSeatMustAlsoPlayInPreSelection =
+    targetPlayersForGame(data) === 2 &&
+    isSharedPseudoUid(data.players?.p3) &&
+    !skipThisPulse.p3 &&
+    !Boolean(played.p3?.card);
+  return preDoneBase && !sharedSeatMustAlsoPlayInPreSelection ? "selection" : "pre_selection";
+}
+
+function bestFitSelectionWithSeatSuitRules(
+  valueOptionsByCard: number[][],
+  rowMeta: Array<{ seat: PlayerSlot; suit: PulseSuit }>,
+  min: number,
+  max: number,
+  options?: {
+    multiplySameSuitPerPlayer?: boolean;
+    reservoirMultiplierUnlessAnyPrism?: number | null;
+  }
+): { total: number; chosenValues: number[] } {
+  const multiplySameSuitPerPlayer = Boolean(options?.multiplySameSuitPerPlayer);
+  const applyReservoirMultiplier = options?.reservoirMultiplierUnlessAnyPrism !== undefined;
+  if (!multiplySameSuitPerPlayer && !applyReservoirMultiplier) {
+    return bestFitSelection(valueOptionsByCard, min, max);
+  }
+
+  const mid = (min + max) / 2;
+  let bestTotal = 0;
+  let bestDist = Number.POSITIVE_INFINITY;
+  let bestMid = Number.POSITIVE_INFINITY;
+  let bestChosen: number[] = [];
+
+  const totalForChosen = (chosenValues: number[]) => {
+    const anyPrism = rowMeta.some((meta, index) => meta.suit === "prism" && typeof chosenValues[index] === "number");
+
+    let total = 0;
+    if (multiplySameSuitPerPlayer) {
+      const grouped = new Map<PlayerSlot, Map<PulseSuit, number[]>>();
+      chosenValues.forEach((value, index) => {
+        const meta = rowMeta[index];
+        if (!meta) return;
+        const seatGroups = grouped.get(meta.seat) ?? new Map<PulseSuit, number[]>();
+        if (!grouped.has(meta.seat)) grouped.set(meta.seat, seatGroups);
+        const suitValues = seatGroups.get(meta.suit) ?? [];
+        if (!seatGroups.has(meta.suit)) seatGroups.set(meta.suit, suitValues);
+        suitValues.push(value);
+      });
+
+      grouped.forEach((seatGroups) => {
+        seatGroups.forEach((values) => {
+          if (!values.length) return;
+          total += values.length === 1 ? values[0]! : values.reduce((product, value) => product * value, 1);
+        });
+      });
+    } else {
+      total = chosenValues.reduce((sum, value) => sum + value, 0);
+    }
+
+    if (applyReservoirMultiplier && !anyPrism) {
+      total *= Number(options?.reservoirMultiplierUnlessAnyPrism ?? 0);
+    }
+
+    return total;
+  };
+
+  function recur(index: number, chosen: number[]) {
+    if (index >= valueOptionsByCard.length) {
+      const total = totalForChosen(chosen);
+      const dist = total < min ? min - total : total > max ? total - max : 0;
+      const midDist = Math.abs(total - mid);
+      if (dist < bestDist || (dist === bestDist && midDist < bestMid)) {
+        bestDist = dist;
+        bestMid = midDist;
+        bestTotal = total;
+        bestChosen = [...chosen];
+      }
+      return;
+    }
+
+    for (const value of valueOptionsByCard[index] ?? []) {
+      chosen.push(value);
+      recur(index + 1, chosen);
+      chosen.pop();
+    }
+  }
+
+  recur(0, []);
+  return { total: bestTotal, chosenValues: bestChosen };
+}
+
+function preparePulseStartState(
+  data: Pick<GameDoc, "locationId" | "partPicks" | "players" | "targetPlayers"> &
+    Partial<Pick<GameDoc, "gameMode">>,
+  handsRaw: SeatHands,
+  pulseDeckRaw: PulseCard[],
+  pulseDiscardRaw: PulseCard[]
+): {
+  hands: SeatHands;
+  pulseDeck: PulseCard[];
+  pulseDiscard: PulseCard[];
+  played: PlayedCards;
+  skipThisPulse: Partial<Record<PlayerSlot, boolean>>;
+  conductorPasses: Partial<Record<PlayerSlot, boolean>>;
+  pulsePhase: GameDoc["pulsePhase"];
+  exchange: GameDoc["exchange"];
+} {
+  let hands = handsRaw;
+  let pulseDeck = [...pulseDeckRaw];
+  let pulseDiscard = [...pulseDiscardRaw];
+  let skipThisPulse: Partial<Record<PlayerSlot, boolean>> = {};
+  let conductorPasses: Partial<Record<PlayerSlot, boolean>> = {};
+  const played: PlayedCards = {};
+
+  const conductorSetup = applyConductorTransfersForPulse(data, hands);
+  hands = conductorSetup.hands;
+  if (Object.keys(conductorSetup.skipThisPulse).length) {
+    skipThisPulse = conductorSetup.skipThisPulse;
+    conductorPasses = conductorSetup.conductorPasses;
+  }
+
+  const prePulseExchangeFrom = prePulseConductorExchangeSeat(data);
+  if (prePulseExchangeFrom && data.players?.[prePulseExchangeFrom]) {
+    skipThisPulse = { ...skipThisPulse, [prePulseExchangeFrom]: true };
+  }
+
+  const autoManifestCount = autoManifestCountPerPlayer(data);
+  if (autoManifestCount > 0) {
+    const activeSeats = SLOTS.filter((seat) => Boolean(data.players?.[seat]) && !skipThisPulse[seat]);
+    for (const seat of activeSeats) {
+      const drawn = drawCardsWithLocationRules(pulseDeck, pulseDiscard, autoManifestCount);
+      if (!drawn.length) continue;
+      const [first, ...rest] = drawn;
+      if (!first) continue;
+      played[seat] = {
+        card: first,
+        extraCard: rest[0],
+        additionalCards: rest,
+        bySeat: seat,
+        at: serverTimestamp(),
+      };
+    }
+  }
+
+  const pulsePhase = initialPulsePhase(data, skipThisPulse, played);
+  const exchangeFrom = mandatoryExchangeSeat(data);
+  const exchange =
+    prePulseExchangeFrom && data.players?.[prePulseExchangeFrom]
+      ? ({ from: prePulseExchangeFrom, status: "awaiting_offer", reason: "conductor_trade" } as const)
+      : pulsePhase !== "pre_selection" && exchangeFrom
+        ? ({ from: exchangeFrom, status: "awaiting_offer", reason: "communion" } as const)
+        : null;
+
+  return { hands, pulseDeck, pulseDiscard, played, skipThisPulse, conductorPasses, pulsePhase, exchange };
 }
 
 function effectiveValueOptionsForCard(
@@ -392,14 +598,6 @@ function buildPlayPhasePatchFromPicks(data: GameDoc, picks: Record<PlayerSlot, s
     hands[seat] = deck.splice(0, cap);
   }
 
-  const conductorSetup = applyConductorTransfersForPulse(
-    { locationId: data.locationId, partPicks: picks, players: data.players, gameMode: data.gameMode },
-    hands
-  );
-  const startingHands = conductorSetup.hands;
-  const startingSkip = conductorSetup.skipThisPulse;
-  const startingPasses = conductorSetup.conductorPasses;
-
   const reservoirCountEffect = location.effects?.find((e) => e?.type === "reservoir_count") as any;
   const reservoirCount = Math.min(2, Math.max(1, Number(reservoirCountEffect?.count) || 1));
   const reservoir = deck.shift() ?? null;
@@ -410,15 +608,12 @@ function buildPlayPhasePatchFromPicks(data: GameDoc, picks: Record<PlayerSlot, s
   const terrainDeck = makeTerrainDeck(terrainDeckType, terrainCardsPerRun);
   const chapter = Math.max(1, Number(data.chapter ?? location.sphere ?? 1));
   const initialPulseKey = pulseKey(chapter, 1, 0, 0);
-  const preSeats = preSelectionSeats({ locationId: data.locationId, partPicks: picks, gameMode: data.gameMode });
-  const exchangeFrom = mandatoryExchangeSeat({ locationId: data.locationId, partPicks: picks, gameMode: data.gameMode });
-  const exchange = !preSeats.length && exchangeFrom ? { from: exchangeFrom, status: "awaiting_offer" as const } : null;
 
   return {
     phase: "play" as const,
     partPicks: picks,
     partAssignments: assignments,
-    hands: startingHands,
+    hands,
     pulseDeck: deck,
     pulseDiscard: [],
     lastDiscarded: [],
@@ -430,11 +625,21 @@ function buildPlayPhasePatchFromPicks(data: GameDoc, picks: Record<PlayerSlot, s
     terrainCardsPerRun,
     terrainIndex: 0,
     step: 1,
-    pulsePhase: preSeats.length ? ("pre_selection" as const) : ("selection" as const),
-    exchange,
-    skipThisPulse: startingSkip,
+    pulsePhase: initialPulsePhase(
+      {
+        locationId: data.locationId,
+        partPicks: picks,
+        players: data.players,
+        targetPlayers: data.targetPlayers,
+        gameMode: data.gameMode,
+      },
+      {},
+      {}
+    ),
+    exchange: null,
+    skipThisPulse: {},
     skipNextPulse: {},
-    conductorPasses: startingPasses,
+    conductorPasses: {},
     played: {},
     chapterAbilityUsed: {},
     chapterGlobalUsed: {},
@@ -1212,11 +1417,30 @@ export async function useChapterMulligan(gameId: string, actorUid: string, seat:
     const chapterGlobalUsed = ensureChapterGlobalUsed(data);
     chapterGlobalUsed.chapter_mulligan_locked = true;
 
-    tx.update(gameRef, {
+    const pulseStart = preparePulseStartState(
+      {
+        locationId: data.locationId,
+        partPicks: data.partPicks,
+        players: data.players,
+        targetPlayers: data.targetPlayers,
+        gameMode: data.gameMode,
+      },
       hands,
-      pulseDeck: deck,
-      pulseDiscard: discard,
+      deck,
+      discard
+    );
+
+    tx.update(gameRef, {
+      hands: pulseStart.hands,
+      pulseDeck: pulseStart.pulseDeck,
+      pulseDiscard: pulseStart.pulseDiscard,
       lastDiscarded: [],
+      played: pulseStart.played,
+      pulsePhase: pulseStart.pulsePhase,
+      exchange: pulseStart.exchange,
+      skipThisPulse: pulseStart.skipThisPulse,
+      skipNextPulse: {},
+      conductorPasses: pulseStart.conductorPasses,
       chapterGlobalUsed,
       updatedAt: serverTimestamp(),
     });
@@ -1237,7 +1461,30 @@ export async function skipChapterMulligan(gameId: string, actorUid: string, seat
     const chapterGlobalUsed = ensureChapterGlobalUsed(data);
     chapterGlobalUsed.chapter_mulligan_locked = true;
 
+    const pulseStart = preparePulseStartState(
+      {
+        locationId: data.locationId,
+        partPicks: data.partPicks,
+        players: data.players,
+        targetPlayers: data.targetPlayers,
+        gameMode: data.gameMode,
+      },
+      { ...(data.hands ?? {}) },
+      [...(data.pulseDeck ?? [])],
+      [...(data.pulseDiscard ?? [])]
+    );
+
     tx.update(gameRef, {
+      hands: pulseStart.hands,
+      pulseDeck: pulseStart.pulseDeck,
+      pulseDiscard: pulseStart.pulseDiscard,
+      lastDiscarded: [],
+      played: pulseStart.played,
+      pulsePhase: pulseStart.pulsePhase,
+      exchange: pulseStart.exchange,
+      skipThisPulse: pulseStart.skipThisPulse,
+      skipNextPulse: {},
+      conductorPasses: pulseStart.conductorPasses,
       chapterGlobalUsed,
       updatedAt: serverTimestamp(),
     });
@@ -1482,7 +1729,9 @@ export async function playCard(gameId: string, actorUid: string, seat: PlayerSlo
     if (canUseChapterMulligan(data)) throw new Error("Use or skip the chapter mulligan before the first manifestation.");
     const pulsePhase = (data.pulsePhase ?? "selection") as any;
     if (pulsePhase !== "selection" && pulsePhase !== "pre_selection") throw new Error("Not in selection phase.");
-    if (pulsePhase === "selection" && data.exchange) throw new Error("Resolve the Communion exchange first.");
+    if (data.exchange && (pulsePhase === "selection" || data.exchange.reason === "conductor_trade")) {
+      throw new Error("Resolve the exchange before manifesting.");
+    }
     const skipThisPulse = data.skipThisPulse ?? {};
     if (skipThisPulse[seat]) throw new Error("This seat skips this Pulse.");
 
@@ -1495,6 +1744,7 @@ export async function playCard(gameId: string, actorUid: string, seat: PlayerSlo
     const locationEffects = location?.effects ?? [];
     const hasUnboundedSelection = locationEffects.some((e) => e?.type === "selection_unbounded_cards");
     const hasConductorRule = locationEffects.some((e) => e?.type === "conductor_plays_three_cards");
+    const hasAutoManifestRule = locationEffects.some((e) => e?.type === "auto_manifest_from_pulse_deck_each_player");
     const conductor = hasConductorRule ? conductorSeat(data) : null;
     if (hasConductorRule && conductor && seat !== conductor) {
       throw new Error("Only the Conductor can manifest in this location.");
@@ -1531,11 +1781,11 @@ export async function playCard(gameId: string, actorUid: string, seat: PlayerSlo
         ...(revealDuringSelection ? { revealedDuringSelection: true } : {}),
       };
     } else {
-      const allowMulti = hasUnboundedSelection || (hasConductorRule && conductor === seat);
+      const allowMulti = hasUnboundedSelection || (hasConductorRule && conductor === seat) || hasAutoManifestRule;
       if (!allowMulti) throw new Error("That seat already played a card.");
 
       const current = manifestedCards(existingEntry as any);
-      const maxCards = hasConductorRule && conductor === seat ? 3 : Number.POSITIVE_INFINITY;
+      const maxCards = hasConductorRule && conductor === seat ? 3 : hasAutoManifestRule ? 2 : Number.POSITIVE_INFINITY;
       if (current.length >= maxCards) throw new Error("Maximum manifested cards reached for this seat.");
 
       const additional = Array.isArray(existingEntry.additionalCards)
@@ -1555,14 +1805,15 @@ export async function playCard(gameId: string, actorUid: string, seat: PlayerSlo
       }
     }
 
-    let full = activeSeats.every((s) => Boolean(played[s]?.card));
-    if (hasConductorRule && conductor && activeSeats.includes(conductor)) {
-      const conductorEntry = played[conductor];
-      const count = manifestedCount(conductorEntry);
-      const remaining = (hands[conductor] ?? []).length;
-      const needed = Math.min(3, count + remaining);
-      full = full && count >= needed;
-    }
+    let full = activeSeats.every((activeSeat) => {
+      const needed = requiredManifestedCountForSeat(
+        { locationId: data.locationId, partPicks: data.partPicks, players: data.players, gameMode: data.gameMode },
+        activeSeat,
+        hands,
+        played
+      );
+      return manifestedCount(played[activeSeat]) >= needed;
+    });
     const preSeats = preSelectionSeats({ locationId: data.locationId, partPicks: data.partPicks, gameMode: data.gameMode });
     const preDoneBase = preSeats.every((s) => skipThisPulse[s] || Boolean(played[s]));
     const sharedSeatMustAlsoPlayInPreSelection =
@@ -1619,7 +1870,9 @@ export async function playDiscardSigilCard(gameId: string, actorUid: string, sea
     if (canUseChapterMulligan(data)) throw new Error("Use or skip the chapter mulligan before the first manifestation.");
     const pulsePhase = (data.pulsePhase ?? "selection") as any;
     if (pulsePhase !== "selection" && pulsePhase !== "pre_selection") throw new Error("Not in selection phase.");
-    if (pulsePhase === "selection" && data.exchange) throw new Error("Resolve the Communion exchange first.");
+    if (data.exchange && (pulsePhase === "selection" || data.exchange.reason === "conductor_trade")) {
+      throw new Error("Resolve the exchange before manifesting.");
+    }
 
     const skipThisPulse = data.skipThisPulse ?? {};
     if (skipThisPulse[seat]) throw new Error("This seat skips this Pulse.");
@@ -1646,6 +1899,7 @@ export async function playDiscardSigilCard(gameId: string, actorUid: string, sea
     const locationEffects = location?.effects ?? [];
     const hasUnboundedSelection = locationEffects.some((e) => e?.type === "selection_unbounded_cards");
     const hasConductorRule = locationEffects.some((e) => e?.type === "conductor_plays_three_cards");
+    const hasAutoManifestRule = locationEffects.some((e) => e?.type === "auto_manifest_from_pulse_deck_each_player");
     const conductor = hasConductorRule ? conductorSeat(data) : null;
     if (hasConductorRule && conductor && seat !== conductor) {
       throw new Error("Only the Conductor can manifest in this location.");
@@ -1665,27 +1919,47 @@ export async function playDiscardSigilCard(gameId: string, actorUid: string, sea
     if (heraldSeat && seat !== heraldSeat && !played[heraldSeat]?.card) {
       throw new Error("The Herald must manifest first.");
     }
-    if (played[seat]?.card) throw new Error("That seat already manifested this Pulse.");
+    if (played[seat]?.card && !hasAutoManifestRule) throw new Error("That seat already manifested this Pulse.");
+    if (played[seat]?.card && manifestedCount(played[seat]) >= 2) {
+      throw new Error("Maximum manifested cards reached for this seat.");
+    }
 
-    played[seat] = {
-      card,
-      additionalCards: [],
-      bySeat: seat,
-      at: serverTimestamp(),
-      revealedDuringSelection: true,
-      disableResonanceRefill: true,
-    };
+    if (!played[seat]?.card) {
+      played[seat] = {
+        card,
+        additionalCards: [],
+        bySeat: seat,
+        at: serverTimestamp(),
+        revealedDuringSelection: true,
+        disableResonanceRefill: true,
+      };
+    } else {
+      const existing = played[seat]!;
+      const additional = Array.isArray(existing.additionalCards)
+        ? [...existing.additionalCards]
+        : existing.extraCard
+          ? [existing.extraCard]
+          : [];
+      additional.push(card);
+      played[seat] = {
+        ...existing,
+        additionalCards: additional,
+        extraCard: additional[0],
+        disableResonanceRefill: true,
+      };
+    }
     usedForSeat[abilityKey] = true;
     chapterAbilityUsed[seat] = usedForSeat;
 
-    let full = activeSeats.every((s) => Boolean(played[s]?.card));
-    if (hasConductorRule && conductor && activeSeats.includes(conductor)) {
-      const conductorEntry = played[conductor];
-      const count = manifestedCount(conductorEntry);
-      const remaining = (data.hands?.[conductor] ?? []).length;
-      const needed = Math.min(3, count + remaining);
-      full = full && count >= needed;
-    }
+    let full = activeSeats.every((activeSeat) => {
+      const needed = requiredManifestedCountForSeat(
+        { locationId: data.locationId, partPicks: data.partPicks, players: data.players, gameMode: data.gameMode },
+        activeSeat,
+        data.hands ?? {},
+        played
+      );
+      return manifestedCount(played[activeSeat]) >= needed;
+    });
     const preSeats = preSelectionSeats({ locationId: data.locationId, partPicks: data.partPicks, gameMode: data.gameMode });
     const preDoneBase = preSeats.every((s) => skipThisPulse[s] || Boolean(played[s]));
     const sharedSeatMustAlsoPlayInPreSelection =
@@ -1740,6 +2014,7 @@ export async function useBlackSeaSigilDraw(gameId: string, actorUid: string, sea
 
     if (data.status !== "active") throw new Error("Game is not active.");
     if (data.phase !== "play") throw new Error("Not in play phase.");
+    if (canUseChapterMulligan(data)) throw new Error("Use or skip the chapter mulligan before acting.");
     const pulsePhase = data.pulsePhase ?? "selection";
     if (pulsePhase !== "selection" && pulsePhase !== "pre_selection") {
       throw new Error("This sigil can be used only during selection.");
@@ -1948,20 +2223,14 @@ export async function confirmSelection(gameId: string, actorUid: string) {
     const played = data.played ?? {};
     if (!activeSeats.length) throw new Error("No active seats this pulse.");
     for (const seat of activeSeats) {
-      if (!played[seat]?.card) throw new Error("All active seats must manifest at least one card.");
-    }
-
-    const location = getLocationById(data.locationId ?? null);
-    const locationEffects = location?.effects ?? [];
-    const hasConductorRule = locationEffects.some((e) => e?.type === "conductor_plays_three_cards");
-    if (hasConductorRule) {
-      const conductor = conductorSeat(data);
-      if (conductor && activeSeats.includes(conductor)) {
-        const entry = played[conductor];
-        const count = manifestedCount(entry as any);
-        const remaining = (data.hands?.[conductor] ?? []).length;
-        const needed = Math.min(3, count + remaining);
-        if (count < needed) throw new Error("Conductor must manifest up to 3 cards before reveal.");
+      const needed = requiredManifestedCountForSeat(
+        { locationId: data.locationId, partPicks: data.partPicks, players: data.players, gameMode: data.gameMode },
+        seat,
+        data.hands ?? {},
+        played
+      );
+      if (manifestedCount(played[seat]) < needed) {
+        throw new Error("All active seats must finish manifesting before reveal.");
       }
     }
 
@@ -1982,6 +2251,7 @@ export async function passCardToConductor(gameId: string, actorUid: string, seat
 
     if (data.status !== "active") throw new Error("Game is not active.");
     if (data.phase !== "play") throw new Error("Not in play phase.");
+    if (canUseChapterMulligan(data)) throw new Error("Use or skip the chapter mulligan before acting.");
     const pulsePhase = data.pulsePhase ?? "selection";
     if (pulsePhase !== "selection" && pulsePhase !== "pre_selection") {
       throw new Error("Cards can be passed to the Conductor only during selection.");
@@ -2046,10 +2316,12 @@ export async function offerExchangeCard(
 
     if (data.status !== "active") throw new Error("Game is not active.");
     if (data.phase !== "play") throw new Error("Not in play phase.");
+    if (canUseChapterMulligan(data)) throw new Error("Use or skip the chapter mulligan before acting.");
     if (data.pulsePhase === "pre_selection") throw new Error("Terrain is not revealed yet.");
 
     const ex = data.exchange ?? null;
     if (!ex || ex.status !== "awaiting_offer") throw new Error("No pending exchange offer.");
+    if (ex.reason === "conductor_trade") throw new Error("This exchange requires selecting multiple cards.");
     if (ex.from !== fromSeat) throw new Error("Only the exchanging seat can offer a card.");
     if (fromSeat === toSeat) throw new Error("Choose a different seat.");
 
@@ -2075,7 +2347,70 @@ export async function offerExchangeCard(
 
     tx.update(gameRef, {
       hands,
-      exchange: { from: fromSeat, to: toSeat, offered: card, status: "awaiting_return" },
+      exchange: { from: fromSeat, to: toSeat, offered: card, status: "awaiting_return", reason: ex.reason ?? "communion" },
+      updatedAt: serverTimestamp(),
+    });
+  });
+}
+
+export async function offerConductorExchangeCards(
+  gameId: string,
+  actorUid: string,
+  fromSeat: PlayerSlot,
+  toSeat: PlayerSlot,
+  cardIds: string[]
+) {
+  const gameRef = doc(db, "games", gameId);
+
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(gameRef);
+    if (!snap.exists()) throw new Error("Game not found.");
+    const data = snap.data() as GameDoc;
+
+    if (data.status !== "active") throw new Error("Game is not active.");
+    if (data.phase !== "play") throw new Error("Not in play phase.");
+    if (canUseChapterMulligan(data)) throw new Error("Use or skip the chapter mulligan before acting.");
+
+    const ex = data.exchange ?? null;
+    if (!ex || ex.status !== "awaiting_offer" || ex.reason !== "conductor_trade") {
+      throw new Error("No conductor exchange is awaiting an offer.");
+    }
+    if (ex.from !== fromSeat) throw new Error("Only the Conductor can offer cards.");
+    if (fromSeat === toSeat) throw new Error("Choose a different seat.");
+
+    if (!canActorControlSeat(data, actorUid, fromSeat)) throw new Error("You can't act for that seat.");
+    if (!data.players?.[toSeat]) throw new Error("Recipient seat is empty.");
+
+    const uniqueIds = Array.from(new Set(cardIds.filter(Boolean)));
+    if (!uniqueIds.length) throw new Error("Select at least one card to offer.");
+
+    const hands = { ...(data.hands ?? {}) } as SeatHands;
+    const fromHand = [...(hands[fromSeat] ?? [])];
+    const offeredCards: PulseCard[] = [];
+    for (const cardId of uniqueIds) {
+      const index = fromHand.findIndex((card) => card.id === cardId);
+      if (index < 0) throw new Error("Some selected cards are no longer in hand.");
+      const [card] = fromHand.splice(index, 1);
+      if (card) offeredCards.push(card);
+    }
+    if (!offeredCards.length) throw new Error("No valid cards selected.");
+    hands[fromSeat] = fromHand;
+
+    const toHand = [...(hands[toSeat] ?? [])];
+    toHand.push(...offeredCards);
+    hands[toSeat] = toHand;
+
+    tx.update(gameRef, {
+      hands,
+      exchange: {
+        from: fromSeat,
+        to: toSeat,
+        offered: offeredCards[0],
+        offeredCards,
+        requiredCount: offeredCards.length,
+        status: "awaiting_return",
+        reason: "conductor_trade",
+      },
       updatedAt: serverTimestamp(),
     });
   });
@@ -2091,10 +2426,12 @@ export async function returnExchangeCard(gameId: string, actorUid: string, seat:
 
     if (data.status !== "active") throw new Error("Game is not active.");
     if (data.phase !== "play") throw new Error("Not in play phase.");
+    if (canUseChapterMulligan(data)) throw new Error("Use or skip the chapter mulligan before acting.");
     if (data.pulsePhase === "pre_selection") throw new Error("Terrain is not revealed yet.");
 
     const ex = data.exchange ?? null;
     if (!ex || ex.status !== "awaiting_return") throw new Error("No exchange awaiting return.");
+    if (ex.reason === "conductor_trade") throw new Error("This exchange requires returning multiple cards.");
     if (ex.to !== seat) throw new Error("Only the recipient seat can return a card.");
     if (!ex.from) throw new Error("Invalid exchange state.");
 
@@ -2113,6 +2450,54 @@ export async function returnExchangeCard(gameId: string, actorUid: string, seat:
 
     const fromHand = [...(hands[ex.from] ?? [])];
     fromHand.push(card);
+    hands[ex.from] = fromHand;
+
+    tx.update(gameRef, {
+      hands,
+      exchange: null,
+      updatedAt: serverTimestamp(),
+    });
+  });
+}
+
+export async function returnConductorExchangeCards(gameId: string, actorUid: string, seat: PlayerSlot, cardIds: string[]) {
+  const gameRef = doc(db, "games", gameId);
+
+  await runTransaction(db, async (tx) => {
+    const snap = await tx.get(gameRef);
+    if (!snap.exists()) throw new Error("Game not found.");
+    const data = snap.data() as GameDoc;
+
+    if (data.status !== "active") throw new Error("Game is not active.");
+    if (data.phase !== "play") throw new Error("Not in play phase.");
+    if (canUseChapterMulligan(data)) throw new Error("Use or skip the chapter mulligan before acting.");
+
+    const ex = data.exchange ?? null;
+    if (!ex || ex.status !== "awaiting_return" || ex.reason !== "conductor_trade") {
+      throw new Error("No conductor exchange is awaiting a return.");
+    }
+    if (ex.to !== seat) throw new Error("Only the recipient seat can return cards.");
+    if (!ex.from) throw new Error("Invalid exchange state.");
+
+    if (!canActorControlSeat(data, actorUid, seat)) throw new Error("You can't act for that seat.");
+
+    const requiredCount = Math.max(1, Number(ex.requiredCount ?? ex.offeredCards?.length ?? 1));
+    const uniqueIds = Array.from(new Set(cardIds.filter(Boolean)));
+    if (uniqueIds.length !== requiredCount) throw new Error(`Select exactly ${requiredCount} cards to return.`);
+
+    const hands = { ...(data.hands ?? {}) } as SeatHands;
+    const myHand = [...(hands[seat] ?? [])];
+    const returnedCards: PulseCard[] = [];
+    for (const cardId of uniqueIds) {
+      const index = myHand.findIndex((card) => card.id === cardId);
+      if (index < 0) throw new Error("Some selected cards are no longer in hand.");
+      const [card] = myHand.splice(index, 1);
+      if (card) returnedCards.push(card);
+    }
+    hands[seat] = myHand;
+
+    const fromHand = [...(hands[ex.from] ?? [])];
+    fromHand.push(...returnedCards);
     hands[ex.from] = fromHand;
 
     tx.update(gameRef, {
@@ -3118,6 +3503,7 @@ export async function endActions(gameId: string, actorUid: string) {
 
     const options: number[][] = [];
     const optionSeat: PlayerSlot[] = [];
+    const optionMeta: Array<{ seat: PlayerSlot; suit: PulseSuit }> = [];
     for (const seat of activeSeats) {
       const entry = played[seat]!;
       const manifested = manifestedCards(entry);
@@ -3155,9 +3541,17 @@ export async function endActions(gameId: string, actorUid: string) {
               : null;
         options.push(explicitChoice === null ? valueOptions : [explicitChoice]);
         optionSeat.push(seat);
+        optionMeta.push({ seat, suit: manifestedCard.suit });
       });
     }
-    const selection = bestFitSelection(options, terrain.min, terrain.max);
+    const sameSuitValuesMultiplyPerPlayer = locationEffects.some((effect) => effect?.type === "same_suit_values_multiply_per_player");
+    const totalMultiplierFromReservoirUnlessAnyPrism = locationEffects.some(
+      (effect) => effect?.type === "total_multiplier_from_reservoir_unless_any_prism"
+    );
+    const selection = bestFitSelectionWithSeatSuitRules(options, optionMeta, terrain.min, terrain.max, {
+      multiplySameSuitPerPlayer: sameSuitValuesMultiplyPerPlayer,
+      reservoirMultiplierUnlessAnyPrism: totalMultiplierFromReservoirUnlessAnyPrism ? reservoirMultiplier : undefined,
+    });
     const manifestedTotalMultiplier = activeSeats.reduce((multiplier, seat) => {
       const raw = Number((played[seat] as any)?.totalMultiplier);
       if (!Number.isFinite(raw) || raw <= 1) return multiplier;
@@ -3692,29 +4086,23 @@ export async function endActions(gameId: string, actorUid: string) {
       };
     }
 
-    const nextPulsePhase = preSelectionSeats({ locationId: data.locationId, partPicks: partPicksForNext, gameMode: data.gameMode }).length
-      ? ("pre_selection" as const)
-      : ("selection" as const);
-    const nextExchangeFrom = mandatoryExchangeSeat({
-      locationId: data.locationId,
-      partPicks: partPicksForNext,
-      gameMode: data.gameMode,
-    });
-    const nextExchange =
-      nextPulsePhase !== "pre_selection" && nextExchangeFrom
-        ? { from: nextExchangeFrom, status: "awaiting_offer" as const }
-        : null;
-    let nextSkipThisPulse = { ...(data.skipNextPulse ?? {}) };
-    const conductorNext = applyConductorTransfersForPulse(
-      { locationId: data.locationId, partPicks: partPicksForNext, players: data.players, gameMode: data.gameMode },
-      hands
-    );
-    if (Object.keys(conductorNext.skipThisPulse).length) {
-      nextSkipThisPulse = conductorNext.skipThisPulse;
-    }
-    const nextConductorPasses = conductorNext.conductorPasses;
     const nextTerrainIndexForPulse = advance ? (nextIndex >= terrainDeck.length ? 0 : nextIndex) : terrainIndex;
     const nextPulseAnchorKey = pulseKey(chapter, nextStep, nextTerrainIndexForPulse, outcomeLog.length);
+    const nextPulseStart =
+      !endedByDamage && !completedChapter
+        ? preparePulseStartState(
+            {
+              locationId: data.locationId,
+              partPicks: partPicksForNext,
+              players: data.players,
+              targetPlayers: data.targetPlayers,
+              gameMode: data.gameMode,
+            },
+            hands,
+            deck,
+            discard
+          )
+        : null;
 
     const seatName = (seat: PlayerSlot) => {
       const seatUid = data.players?.[seat] ?? "";
@@ -3744,18 +4132,18 @@ export async function endActions(gameId: string, actorUid: string) {
 
     const basePatch: Record<string, any> = {
       golem: { hp, heat },
-      pulseDeck: deck,
-      pulseDiscard: discard,
+      pulseDeck: nextPulseStart?.pulseDeck ?? deck,
+      pulseDiscard: nextPulseStart?.pulseDiscard ?? discard,
       lastDiscarded: discardedThisPulse,
-      hands: conductorNext.hands,
-      played: {},
+      hands: nextPulseStart?.hands ?? hands,
+      played: nextPulseStart?.played ?? {},
       terrainIndex: nextTerrainIndexForPulse,
       step: nextStep,
-      pulsePhase: nextPulsePhase,
-      exchange: nextExchange,
-      skipThisPulse: nextSkipThisPulse,
+      pulsePhase: nextPulseStart?.pulsePhase ?? ("selection" as const),
+      exchange: nextPulseStart?.exchange ?? null,
+      skipThisPulse: nextPulseStart?.skipThisPulse ?? {},
       skipNextPulse: {},
-      conductorPasses: nextConductorPasses,
+      conductorPasses: nextPulseStart?.conductorPasses ?? {},
       partPicks: partPicksForNext,
       pulseFrictionAnchor: { key: nextPulseAnchorKey, hp, heat },
       frictionIgnoredPulseKey: null,

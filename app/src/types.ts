@@ -44,8 +44,11 @@ export type TerrainDeckType =
   | "sphere_1_2"
   | "sphere_3_4"
   | "sphere_5_6"
+  | "sphere_5_6_9"
   | "sphere_7"
   | "sphere_8_9"
+  | "sphere_8"
+  | "sphere_8_10"
   | "sphere_1"
   | "sphere_2"
   | "sphere_3";
@@ -154,6 +157,9 @@ export type GameDoc = {
     from: PlayerSlot;
     to?: PlayerSlot;
     offered?: PulseCard;
+    offeredCards?: PulseCard[];
+    requiredCount?: number;
+    reason?: "communion" | "conductor_trade";
     status: "awaiting_offer" | "awaiting_return";
   } | null;
   skipThisPulse?: Partial<Record<PlayerSlot, boolean>>;

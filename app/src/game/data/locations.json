@@ -341,5 +341,47 @@
     "compulsoryFacultyIds": ["conductor_of_streams", "triune_focus"],
     "optionalFacultyIds": ["scales_of_geburah", "unveiled_radiance"],
     "effects": [{ "type": "conductor_only_terrain_view" }, { "type": "suit_only_communication" }]
+  },
+  {
+    "id": "S9_CHOKMAH_THE_TORRENT_OF_INSIGHT",
+    "sphere": 9,
+    "terrainDeckType": "sphere_8_10",
+    "name": "Chokmah: The Torrent of Insight",
+    "image": "/images/locations/9-Chokmah-The Torrent of Insight.jpg",
+    "flavor": "“Thought does not arrive in steps, but in floods. The Conductor must cut channels through the torrent before the Vessel can act.”",
+    "rule": "Torrent Exchange: Before each Pulse, the Conductor chooses another player and offers any number of chosen cards. That player then returns the same number of chosen cards. The Conductor does not manifest during that Pulse.",
+    "rewards": [],
+    "compulsoryFacultyIds": ["conductor_of_streams", "triune_focus", "sophic_vent"],
+    "optionalFacultyIds": [],
+    "effects": [{ "type": "pre_pulse_conductor_exchange_and_skip" }]
+  },
+  {
+    "id": "S9_CHOKMAH_THE_LIGHTNING_PATH",
+    "sphere": 9,
+    "terrainDeckType": "sphere_8_10",
+    "name": "Chokmah: The Lightning Path",
+    "image": "/images/locations/9-Chokmah-The Lightning Path.jpg",
+    "flavor": "“The Path strikes before intention. Form descends in flashes, and only those who can complete the pattern survive the shock.”",
+    "rule": "Flash Descent: At the start of each Pulse, each active player manifests 1 random card from the Pulse Deck. Then each player manifests 1 card from hand as normal. Within each player's manifestation, cards that share a suit multiply together instead of adding.",
+    "rewards": [],
+    "compulsoryFacultyIds": ["scales_of_geburah"],
+    "optionalFacultyIds": ["akashic_lens", "harmonized_memory", "sophic_vent"],
+    "effects": [
+      { "type": "auto_manifest_from_pulse_deck_each_player", "count": 1 },
+      { "type": "same_suit_values_multiply_per_player" }
+    ]
+  },
+  {
+    "id": "S9_CHOKMAH_THE_SINGULARITY_OF_WILL",
+    "sphere": 9,
+    "terrainDeckType": "sphere_8_10",
+    "name": "Chokmah: The Singularity of Will",
+    "image": "/images/locations/9-Chokmah-The Singularity of Will.jpg",
+    "flavor": "“All lines collapse toward one command. Unless Prism intervenes, the Record becomes the axis around which every act is magnified.”",
+    "rule": "Focal Compression: After summing manifested values, multiply the total by the current Akashic Reservoir value. If any manifested card is Prism, ignore this multiplier.",
+    "rewards": [],
+    "compulsoryFacultyIds": ["reinforced_hull"],
+    "optionalFacultyIds": ["akashic_lens", "harmonized_memory", "mercurial_joints"],
+    "effects": [{ "type": "total_multiplier_from_reservoir_unless_any_prism" }]
   }
 ]

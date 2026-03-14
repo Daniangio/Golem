@@ -14,12 +14,14 @@ import {
   joinGame,
   leaveGame,
   offerExchangeCard,
+  offerConductorExchangeCards,
   playDiscardSigilCard,
   playerCount,
   playCard,
   playAuxBatteryCard,
   passCardToConductor,
   returnExchangeCard,
+  returnConductorExchangeCards,
   revokeInvite,
   removeBot,
   setLocationVote,
@@ -202,12 +204,19 @@ export default function Game() {
     game?.exchange?.status,
     game?.exchange?.from,
     game?.exchange?.to,
+    game?.exchange?.reason,
     game?.players?.p1,
     game?.players?.p2,
     game?.players?.p3,
     game?.createdBy,
     uid,
   ]);
+
+  useEffect(() => {
+    if (game?.exchange?.reason !== "conductor_trade") return;
+    setSelectedCardId(null);
+    setHandActionSelectedIds([]);
+  }, [game?.exchange?.reason, game?.exchange?.status, game?.exchange?.from, game?.exchange?.to]);
 
   useEffect(() => {
     if (!showFacultyModal && !showLocationInfoModal) return;
@@ -942,6 +951,7 @@ export default function Game() {
       canActForSelected &&
       actingSeat &&
       actingSeat === selectedSeat &&
+      !chapterMulliganAvailable &&
       !handActionModeActive &&
       locationHasConductorPassRule &&
       conductorOnlySelection &&
@@ -996,6 +1006,7 @@ export default function Game() {
       actingSeat === selectedSeat &&
       canActForSelected &&
       selectedHasEffect(ABILITY_SIGIL_PLAY_FROM_DISCARD) &&
+      !chapterMulliganAvailable &&
       (pulsePhase === "selection" || pulsePhase === "pre_selection") &&
       !selectedSeatSkipped &&
       !played[selectedSeat]?.card &&
@@ -1011,6 +1022,7 @@ export default function Game() {
       actingSeat === selectedSeat &&
       canActForSelected &&
       selectedHasEffect(ABILITY_SIGIL_BLACK_SEA) &&
+      !chapterMulliganAvailable &&
       (pulsePhase === "selection" || pulsePhase === "pre_selection") &&
       !selectedSeatSkipped &&
       !played[selectedSeat]?.card &&
@@ -1052,18 +1064,34 @@ export default function Game() {
   const canReturnExchange = Boolean(
     exchange && exchange.status === "awaiting_return" && exchange.to && uid && canControlSeat(game, uid, exchange.to)
   );
+  const exchangeIsConductorTrade = exchange?.reason === "conductor_trade";
+  const exchangeRequiredCount = Math.max(1, Number(exchange?.requiredCount ?? exchange?.offeredCards?.length ?? 1));
+  const exchangeAnchorCardId =
+    exchangeIsConductorTrade && handActionSelectedIds.length
+      ? handActionSelectedIds[handActionSelectedIds.length - 1] ?? null
+      : null;
 
   const exchangeStatusLine = (() => {
     if (!exchangePending || !exchange) return null;
     if (exchange.status === "awaiting_offer") {
       const fromUid = players[exchange.from] ?? "";
       const fromName = fromUid ? playerLabel(fromUid, game.playerNames) : seatLabel(exchange.from);
+      if (exchangeIsConductorTrade) {
+        return canOfferExchange
+          ? "Torrent Exchange: choose one or more cards, then choose who receives them."
+          : `Waiting for ${fromName} to offer cards…`;
+      }
       return canOfferExchange ? "The Communion of Vessels: offer a card to a player." : `Waiting for ${fromName} to exchange…`;
     }
     if (exchange.status === "awaiting_return") {
       const toSeat = exchange.to ?? null;
       const toUid = toSeat ? (players[toSeat] ?? "") : "";
       const toName = toUid ? playerLabel(toUid, game.playerNames) : (toSeat ? seatLabel(toSeat) : "recipient");
+      if (exchangeIsConductorTrade) {
+        return canReturnExchange
+          ? `Torrent Exchange: return ${exchangeRequiredCount} chosen card${exchangeRequiredCount === 1 ? "" : "s"}.`
+          : `Waiting for ${toName} to return ${exchangeRequiredCount} card${exchangeRequiredCount === 1 ? "" : "s"}…`;
+      }
       return canReturnExchange ? "The Communion of Vessels: return a card to finish the exchange." : `Waiting for ${toName} to return a card…`;
     }
     return null;
@@ -1100,7 +1128,7 @@ export default function Game() {
     });
   })();
   const exchangeCardActions = (() => {
-    if (!exchangePending || !exchange || !selectedCardId) return [] as Array<{
+    if (!exchangePending || !exchange) return [] as Array<{
       key: string;
       label: string;
       onClick: () => void;
@@ -1108,6 +1136,39 @@ export default function Game() {
       className?: string;
       anchorCardId?: string;
     }>;
+    if (exchangeIsConductorTrade && exchange.status === "awaiting_offer" && canOfferExchange) {
+      const selectedIds = handActionSelectedIds.filter((cardId) => (hands[exchange.from] ?? []).some((card) => card.id === cardId));
+      return exchangeRecipients.map((recipient) => ({
+        key: `offer-many-${recipient.seat}`,
+        label: `Offer ${selectedIds.length || "…"} to ${recipient.name}`,
+        onClick: () =>
+          void guarded(async () => {
+            if (!uid || !gameId || !exchange?.from || !selectedIds.length) return;
+            await offerConductorExchangeCards(gameId, uid, exchange.from, recipient.seat, selectedIds);
+            setHandActionSelectedIds([]);
+          }),
+        disabled: !recipient.enabled || !selectedIds.length,
+        anchorCardId: exchangeAnchorCardId ?? undefined,
+      }));
+    }
+    if (exchangeIsConductorTrade && exchange.status === "awaiting_return" && canReturnExchange && exchange.to) {
+      const selectedIds = handActionSelectedIds.filter((cardId) => (hands[exchange.to!] ?? []).some((card) => card.id === cardId));
+      return [
+        {
+          key: "return-many",
+          label: `Return ${exchangeRequiredCount} card${exchangeRequiredCount === 1 ? "" : "s"}`,
+          onClick: () =>
+            void guarded(async () => {
+              if (!uid || !gameId || !exchange?.to) return;
+              await returnConductorExchangeCards(gameId, uid, exchange.to, selectedIds);
+              setHandActionSelectedIds([]);
+            }),
+          disabled: selectedIds.length !== exchangeRequiredCount,
+          anchorCardId: exchangeAnchorCardId ?? undefined,
+        },
+      ];
+    }
+    if (!selectedCardId) return [];
     if (exchange.status === "awaiting_offer" && canOfferExchange) {
       const canUseCard = Boolean(exchange.from && (hands[exchange.from] ?? []).some((c) => c.id === selectedCardId));
       return exchangeRecipients.map((recipient) => ({
@@ -1445,13 +1506,21 @@ export default function Game() {
     )
   ) : exchangePending ? (
     <div className="text-[11px] text-white/75">
-      {exchange?.status === "awaiting_offer"
-        ? canOfferExchange
-          ? "The Communion of Vessels: select a card, then choose who receives it using the button above the selected card."
-          : "The Communion of Vessels: wait while the offering player chooses a card."
-        : canReturnExchange
-          ? "The Communion of Vessels: select a card, then use Return above the selected card."
-          : "The Communion of Vessels: wait while the recipient returns a card."}
+      {exchangeIsConductorTrade
+        ? exchange?.status === "awaiting_offer"
+          ? canOfferExchange
+            ? "Torrent Exchange: select one or more cards, then choose the recipient using the button above the last selected card."
+            : "Torrent Exchange: wait while the Conductor chooses cards."
+          : canReturnExchange
+            ? `Torrent Exchange: select exactly ${exchangeRequiredCount} card${exchangeRequiredCount === 1 ? "" : "s"}, then return them from the button above the last selected card.`
+            : "Torrent Exchange: wait while the recipient returns cards."
+        : exchange?.status === "awaiting_offer"
+          ? canOfferExchange
+            ? "The Communion of Vessels: select a card, then choose who receives it using the button above the selected card."
+            : "The Communion of Vessels: wait while the offering player chooses a card."
+          : canReturnExchange
+            ? "The Communion of Vessels: select a card, then use Return above the selected card."
+            : "The Communion of Vessels: wait while the recipient returns a card."}
     </div>
   ) : handActionMode === "mulligan" ? (
     <div className="space-y-2">
@@ -2169,16 +2238,26 @@ export default function Game() {
             selectedCardIds={
               isDiscardSelectionPhase
                 ? pendingDiscardSelectedIds
+                : exchangeIsConductorTrade
+                  ? handActionSelectedIds
                 : handActionModeActive
                   ? handActionSelectedIds
                   : undefined
             }
-            selectedCardId={handActionModeActive ? null : selectedCardId}
+            selectedCardId={handActionModeActive || exchangeIsConductorTrade ? null : selectedCardId}
             onToggleSelectCard={(cardId) => {
               if (isDiscardSelectionPhase) {
                 void guarded(async () => {
                   if (!uid || !gameId || !canManagePendingDiscardForSelected) return;
                   await togglePendingDiscardSelection(gameId, uid, selectedSeat, cardId);
+                });
+                return;
+              }
+              if (exchangeIsConductorTrade) {
+                setHandActionSelectedIds((prev) => {
+                  if (prev.includes(cardId)) return prev.filter((id) => id !== cardId);
+                  if (exchange?.status === "awaiting_return" && prev.length >= exchangeRequiredCount) return prev;
+                  return [...prev, cardId];
                 });
                 return;
               }

@@ -37,6 +37,10 @@ export type Effect =
   | { type: "selection_unbounded_cards" }
   | { type: "pre_selection_pass_to_conductor"; countPerDonor?: number }
   | { type: "conductor_plays_three_cards" }
+  | { type: "pre_pulse_conductor_exchange_and_skip" }
+  | { type: "auto_manifest_from_pulse_deck_each_player"; count?: number }
+  | { type: "same_suit_values_multiply_per_player" }
+  | { type: "total_multiplier_from_reservoir_unless_any_prism" }
   | { type: "requires_consecutive_successes"; count: number }
   | { type: "remove_success_cards_from_game" }
   | { type: "conductor_only_terrain_view" }
@@ -219,9 +223,9 @@ function defaultLocationImagePath(sphere: number, name: string): string | null {
 }
 
 function defaultTerrainDeckType(sphere: number): TerrainDeckType {
-  if (sphere >= 8) return "sphere_8_9";
+  if (sphere >= 8) return "sphere_8_10";
   if (sphere >= 7) return "sphere_7";
-  if (sphere >= 5) return "sphere_5_6";
+  if (sphere >= 5) return "sphere_5_6_9";
   if (sphere >= 3) return "sphere_3_4";
   return "sphere_1_2";
 }
