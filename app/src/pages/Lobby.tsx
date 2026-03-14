@@ -4,6 +4,21 @@ import { createGameAndJoin, playerCount, subscribeOpenGames, type GameSummary } 
 import { useAuthUser } from "../lib/useAuth";
 import { getAllCampaignPaths } from "../game/locations";
 import type { CampaignVariant, GameMode } from "../types";
+import {
+  MysticPanel,
+  MysticScene,
+  mysticButtonClass,
+  mysticInfoPillClass,
+  mysticSelectClass,
+} from "../components/chrome/MysticUI";
+
+function formatGameMode(mode: GameMode | undefined) {
+  return mode === "single_location" ? "Single location" : mode === "tutorial" ? "Tutorial" : "Campaign";
+}
+
+function formatCampaignVariant(variant: CampaignVariant | undefined) {
+  return variant === "random_choice" ? "Random each sphere" : variant === "preset_path" ? "Preset path" : "Free choice";
+}
 
 export default function Lobby() {
   const nav = useNavigate();
@@ -19,7 +34,6 @@ export default function Lobby() {
   const [campaignPathId, setCampaignPathId] = useState<string>(campaignPaths[0]?.id ?? "");
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
-
   const [openGames, setOpenGames] = useState<GameSummary[]>([]);
 
   useEffect(() => subscribeOpenGames(setOpenGames), []);
@@ -52,6 +66,10 @@ export default function Lobby() {
   }, [user]);
 
   const canCreate = useMemo(() => Boolean(uid) && !busy, [uid, busy]);
+  const selectedCampaignPath = useMemo(
+    () => campaignPaths.find((path) => path.id === campaignPathId) ?? null,
+    [campaignPathId, campaignPaths]
+  );
 
   async function onCreate() {
     if (!uid) return;
@@ -73,214 +91,243 @@ export default function Lobby() {
   }
 
   return (
-    <div className="grid gap-6">
-      <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-        <div className="text-sm font-semibold text-slate-700">Create a room</div>
-        <p className="mt-1 text-sm text-slate-600">
-          Choose 2 players (plus shared pseudo-seat) or classic 3 players.
-        </p>
+    <MysticScene background="Back2" className="min-h-screen px-4 py-6 sm:px-6 lg:px-8">
+      <div className="mx-auto flex min-h-[calc(100vh-3rem)] max-w-7xl flex-col gap-6">
+        <div className="grid gap-6 xl:grid-cols-[minmax(360px,440px)_minmax(0,1fr)]">
+          <MysticPanel className="p-6 sm:p-7" glow="#67e8f9">
+            <div className={mysticInfoPillClass}>✶ Threshold of Rooms</div>
+            <h1 className="mt-4 text-3xl font-black tracking-tight text-white sm:text-4xl">
+              Compose a new pilgrimage.
+            </h1>
+            <p className="mt-3 text-sm leading-7 text-white/72">
+              Configure visibility, player structure, and campaign flow. The new shell stays fully responsive, with the
+              same room logic underneath.
+            </p>
 
-        <div className="mt-4 grid gap-4 sm:grid-cols-2">
-          <div>
-            <div className="text-sm font-medium text-slate-700">Signed in as</div>
-            <div className="mt-1 rounded-xl border border-slate-200 bg-white px-3 py-2 text-sm font-semibold text-slate-900 shadow-sm">
-              {displayName}
+            <div className="mt-5 grid gap-3 sm:grid-cols-2">
+              <div className="rounded-2xl border border-white/10 bg-white/6 p-4 backdrop-blur-md">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/52">Signed in as</div>
+                <div className="mt-2 text-lg font-extrabold text-white">{displayName}</div>
+                <button
+                  type="button"
+                  onClick={() => nav("/me")}
+                  className="mt-3 text-xs font-semibold text-cyan-200/90 hover:text-cyan-100"
+                >
+                  Edit profile →
+                </button>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/6 p-4 backdrop-blur-md">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/52">Room archetype</div>
+                <div className="mt-2 text-sm font-semibold text-white/84">
+                  {targetPlayers === 2 ? "2 players + shared vessel" : "Classic 3-player circle"}
+                </div>
+                <div className="mt-2 text-xs leading-6 text-white/58">
+                  Two-player rooms keep the shared seat. Three-player rooms use the full circle.
+                </div>
+              </div>
             </div>
-            <div className="mt-1 text-xs text-slate-500">
-              Change your display name in{" "}
-              <button onClick={() => nav("/me")} className="font-semibold underline">
-                Profile
-              </button>
-              .
+          </MysticPanel>
+
+          <MysticPanel className="p-6 sm:p-7" glow="#f6c453">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/52">Room creation</div>
+                <div className="mt-1 text-2xl font-black text-white">Create a room</div>
+              </div>
+              <div className={mysticInfoPillClass}>{formatGameMode(gameMode)}</div>
             </div>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700">Visibility</label>
-            <select
-              value={visibility}
-              onChange={(e) => setVisibility(e.target.value as any)}
-              className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-900 shadow-sm outline-none focus:border-slate-400"
-            >
-              <option value="public">Public (listed)</option>
-              <option value="private">Private (invite-only, v0: join by link requires invite)</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700">Run type</label>
-            <select
-              value={gameMode}
-              onChange={(e) => setGameMode(e.target.value as GameMode)}
-              className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-900 shadow-sm outline-none focus:border-slate-400"
-            >
-              <option value="campaign">Campaign (Sphere by Sphere)</option>
-              <option value="single_location">Single location</option>
-              <option value="tutorial">Tutorial (no location/faculty effects)</option>
-            </select>
-          </div>
-          <div>
-            <label className="block text-sm font-medium text-slate-700">Players</label>
-            <select
-              value={targetPlayers}
-              onChange={(e) => setTargetPlayers(Number(e.target.value) as 2 | 3)}
-              className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-900 shadow-sm outline-none focus:border-slate-400"
-            >
-              <option value={3}>3 players</option>
-              <option value={2}>2 players + shared pseudo-seat</option>
-            </select>
-          </div>
 
-          {gameMode === "campaign" && (
-            <div>
-              <label className="block text-sm font-medium text-slate-700">Campaign flow</label>
-              <select
-                value={campaignVariant}
-                onChange={(e) => setCampaignVariant(e.target.value as CampaignVariant)}
-                className="mt-1 w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-900 shadow-sm outline-none focus:border-slate-400"
-              >
-                <option value="free_choice">Free choice (vote among available locations)</option>
-                <option value="random_choice">Random location each sphere</option>
-                <option value="preset_path">Preset path (fixed route)</option>
-              </select>
+            <div className="mt-6 grid gap-4 md:grid-cols-2">
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.24em] text-white/56">Visibility</label>
+                <select value={visibility} onChange={(e) => setVisibility(e.target.value as any)} className={mysticSelectClass}>
+                  <option value="public">Public (listed)</option>
+                  <option value="private">Private (invite-only)</option>
+                </select>
+              </div>
 
-              {campaignVariant === "preset_path" && (
-                <div className="mt-2 space-y-2">
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.24em] text-white/56">Run type</label>
+                <select value={gameMode} onChange={(e) => setGameMode(e.target.value as GameMode)} className={mysticSelectClass}>
+                  <option value="campaign">Campaign (Sphere by Sphere)</option>
+                  <option value="single_location">Single location</option>
+                  <option value="tutorial">Tutorial (no location/faculty effects)</option>
+                </select>
+              </div>
+
+              <div>
+                <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.24em] text-white/56">Players</label>
+                <select
+                  value={targetPlayers}
+                  onChange={(e) => setTargetPlayers(Number(e.target.value) as 2 | 3)}
+                  className={mysticSelectClass}
+                >
+                  <option value={3}>3 players</option>
+                  <option value={2}>2 players + shared pseudo-seat</option>
+                </select>
+              </div>
+
+              {gameMode === "campaign" ? (
+                <div>
+                  <label className="mb-1.5 block text-xs font-semibold uppercase tracking-[0.24em] text-white/56">Campaign flow</label>
                   <select
-                    value={campaignPathId}
-                    onChange={(e) => setCampaignPathId(e.target.value)}
-                    className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-900 shadow-sm outline-none focus:border-slate-400"
+                    value={campaignVariant}
+                    onChange={(e) => setCampaignVariant(e.target.value as CampaignVariant)}
+                    className={mysticSelectClass}
                   >
-                    {campaignPaths.map((path) => (
-                      <option key={path.id} value={path.id}>
-                        {path.name} ({path.difficulty})
-                      </option>
-                    ))}
+                    <option value="free_choice">Free choice</option>
+                    <option value="random_choice">Random each sphere</option>
+                    <option value="preset_path">Preset path</option>
                   </select>
-                  {campaignPaths.find((p) => p.id === campaignPathId) && (
-                    <div className="rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-600">
-                      {campaignPaths.find((p) => p.id === campaignPathId)?.lore}
-                    </div>
-                  )}
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-white/10 bg-white/6 p-4 text-xs leading-6 text-white/58">
+                  Tutorial strips location and faculty effects. Single-location runs skip the campaign arc.
                 </div>
               )}
-
-              {campaignVariant === "random_choice" && (
-                <label className="mt-2 flex cursor-pointer items-center gap-2 rounded-xl bg-slate-50 px-3 py-2 text-sm text-slate-700">
-                  <input
-                    type="checkbox"
-                    checked={campaignRandomFaculties}
-                    onChange={(e) => setCampaignRandomFaculties(e.target.checked)}
-                    className="h-4 w-4"
-                  />
-                  Randomly assign faculties (compulsory respected)
-                </label>
-              )}
             </div>
-          )}
+
+            {gameMode === "campaign" && campaignVariant === "preset_path" && (
+              <div className="mt-4 grid gap-3 lg:grid-cols-[minmax(0,320px)_minmax(0,1fr)]">
+                <select value={campaignPathId} onChange={(e) => setCampaignPathId(e.target.value)} className={mysticSelectClass}>
+                  {campaignPaths.map((path) => (
+                    <option key={path.id} value={path.id}>
+                      {path.name} ({path.difficulty})
+                    </option>
+                  ))}
+                </select>
+                {selectedCampaignPath && (
+                  <div className="rounded-2xl border border-white/10 bg-white/6 px-4 py-3 text-sm text-white/70 backdrop-blur-md">
+                    <div className="font-semibold text-white">{selectedCampaignPath.name}</div>
+                    <div className="mt-1 text-xs uppercase tracking-[0.24em] text-white/42">{selectedCampaignPath.difficulty}</div>
+                    <div className="mt-2 text-sm leading-6 text-white/66">{selectedCampaignPath.lore}</div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {gameMode === "campaign" && campaignVariant === "random_choice" && (
+              <label className="mt-4 flex cursor-pointer items-center gap-3 rounded-2xl border border-white/10 bg-white/6 px-4 py-3 text-sm text-white/78 backdrop-blur-md">
+                <input
+                  type="checkbox"
+                  checked={campaignRandomFaculties}
+                  onChange={(e) => setCampaignRandomFaculties(e.target.checked)}
+                  className="h-4 w-4 accent-cyan-300"
+                />
+                Randomly assign faculties while preserving compulsory picks.
+              </label>
+            )}
+
+            <div className="mt-6 flex flex-wrap items-center gap-2">
+              <span className={mysticInfoPillClass}>{visibility === "public" ? "Listed room" : "Invite-only room"}</span>
+              {gameMode === "campaign" && <span className={mysticInfoPillClass}>{formatCampaignVariant(campaignVariant)}</span>}
+            </div>
+
+            <button onClick={onCreate} disabled={!canCreate} className={mysticButtonClass("primary", true)}>
+              Open chamber
+            </button>
+
+            {msg && (
+              <div className="mt-4 rounded-2xl border border-rose-200/18 bg-rose-400/10 p-4 text-sm text-rose-50">
+                <div className="font-semibold">Error</div>
+                <div className="mt-1 break-words text-rose-50/86">{msg}</div>
+              </div>
+            )}
+          </MysticPanel>
         </div>
 
-        <button
-          onClick={onCreate}
-          disabled={!canCreate}
-          className="mt-4 w-full rounded-xl bg-slate-900 px-4 py-2.5 font-semibold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-40"
-        >
-          Create room
-        </button>
-
-        {msg && (
-          <div className="mt-4 rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900">
-            <div className="font-semibold">Error</div>
-            <div className="mt-1 break-words">{msg}</div>
-          </div>
-        )}
-      </div>
-
-      <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-        <div className="text-sm font-semibold text-slate-700">Open games</div>
-        {sortedOpenGames.length === 0 ? (
-          <p className="mt-2 text-sm text-slate-600">No open games right now.</p>
-        ) : (
-          <div className="mt-3 space-y-4">
+        <MysticPanel className="flex min-h-0 flex-1 flex-col p-6 sm:p-7" glow="#8b5cf6">
+          <div className="flex flex-wrap items-center justify-between gap-3">
             <div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Lobby rooms</div>
-              {openLobbyGames.length === 0 ? (
-                <p className="mt-1 text-sm text-slate-500">No waiting rooms.</p>
-              ) : (
-                <div className="mt-2 grid gap-2">
-                  {openLobbyGames.map((g) => {
-                    const target = g.targetPlayers ?? 3;
-                    const count =
-                      target === 2
-                        ? ["p1", "p2"].filter((seat) => Boolean((g.players ?? {})[seat as "p1" | "p2"])).length
-                        : playerCount(g.players ?? {});
-                    const full = count >= target;
-                    return (
-                      <button
-                        key={g.id}
-                        onClick={() => nav(`/game/${g.id}`)}
-                        className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-sm shadow-sm hover:bg-slate-50"
-                      >
-                        <div>
-                          <div className="font-semibold text-slate-800">Room {g.id}</div>
-                          <div className="text-xs text-slate-500">
-                            Players: {count}/{target}
-                            {target === 2 ? " (+shared)" : ""} • {full ? "Full" : "Joinable"} •{" "}
-                            {g.gameMode === "single_location"
-                              ? "Single location"
-                              : g.gameMode === "tutorial"
-                                ? "Tutorial"
-                                : "Campaign"}
-                          </div>
-                        </div>
-                        <span className="text-xs font-semibold text-slate-500">Lobby</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
+              <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/52">Public lattice</div>
+              <div className="mt-1 text-2xl font-black text-white">Open games</div>
             </div>
-
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">In progress</div>
-              {openActiveGames.length === 0 ? (
-                <p className="mt-1 text-sm text-slate-500">No active games.</p>
-              ) : (
-                <div className="mt-2 grid gap-2">
-                  {openActiveGames.map((g) => {
-                    const target = g.targetPlayers ?? 3;
-                    const count =
-                      target === 2
-                        ? ["p1", "p2"].filter((seat) => Boolean((g.players ?? {})[seat as "p1" | "p2"])).length
-                        : playerCount(g.players ?? {});
-                    const chapter = g.chapter ?? 1;
-                    const step = g.step ?? 1;
-                    return (
-                      <button
-                        key={g.id}
-                        onClick={() => nav(`/game/${g.id}`)}
-                        className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-sm shadow-sm hover:bg-slate-50"
-                      >
-                        <div>
-                          <div className="font-semibold text-slate-800">Game {g.id}</div>
-                          <div className="text-xs text-slate-500">
-                            Players: {count}/{target}
-                            {target === 2 ? " (+shared)" : ""} • Sphere {chapter} • Pulse {step} •{" "}
-                            {g.gameMode === "single_location"
-                              ? "Single location"
-                              : g.gameMode === "tutorial"
-                                ? "Tutorial"
-                                : "Campaign"}
-                          </div>
-                        </div>
-                        <span className="text-xs font-semibold text-emerald-700">Active</span>
-                      </button>
-                    );
-                  })}
-                </div>
-              )}
+            <div className="flex flex-wrap gap-2">
+              <span className={mysticInfoPillClass}>Lobby {openLobbyGames.length}</span>
+              <span className={mysticInfoPillClass}>Active {openActiveGames.length}</span>
             </div>
           </div>
-        )}
+
+          {sortedOpenGames.length === 0 ? (
+            <div className="mt-6 rounded-3xl border border-dashed border-white/12 bg-white/5 p-8 text-center text-sm text-white/58">
+              No open games right now.
+            </div>
+          ) : (
+            <div className="mt-6 grid min-h-0 gap-5 xl:grid-cols-2">
+              <div className="min-h-0">
+                <div className="text-xs font-semibold uppercase tracking-[0.24em] text-white/44">Lobby rooms</div>
+                <div className="mt-3 grid gap-3">
+                  {openLobbyGames.length === 0 ? (
+                    <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/55">No waiting rooms.</div>
+                  ) : (
+                    openLobbyGames.map((g) => {
+                      const target = g.targetPlayers ?? 3;
+                      const count =
+                        target === 2
+                          ? ["p1", "p2"].filter((seat) => Boolean((g.players ?? {})[seat as "p1" | "p2"])).length
+                          : playerCount(g.players ?? {});
+                      const full = count >= target;
+                      return (
+                        <button
+                          key={g.id}
+                          onClick={() => nav(`/game/${g.id}`)}
+                          className="group flex items-center justify-between rounded-2xl border border-white/10 bg-white/6 px-4 py-3 text-left shadow-[0_0_26px_rgba(56,189,248,0.05)] backdrop-blur-md transition hover:-translate-y-0.5 hover:bg-white/10"
+                        >
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-semibold text-white">Room {g.id}</div>
+                            <div className="mt-1 text-xs leading-6 text-white/56">
+                              Players: {count}/{target}
+                              {target === 2 ? " (+shared)" : ""} • {full ? "Full" : "Joinable"} • {formatGameMode(g.gameMode)}
+                            </div>
+                          </div>
+                          <span className="ml-3 shrink-0 text-xs font-semibold text-cyan-200/82 group-hover:text-cyan-100">
+                            Lobby →
+                          </span>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+
+              <div className="min-h-0">
+                <div className="text-xs font-semibold uppercase tracking-[0.24em] text-white/44">In progress</div>
+                <div className="mt-3 grid gap-3">
+                  {openActiveGames.length === 0 ? (
+                    <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/55">No active games.</div>
+                  ) : (
+                    openActiveGames.map((g) => {
+                      const target = g.targetPlayers ?? 3;
+                      const count =
+                        target === 2
+                          ? ["p1", "p2"].filter((seat) => Boolean((g.players ?? {})[seat as "p1" | "p2"])).length
+                          : playerCount(g.players ?? {});
+                      return (
+                        <button
+                          key={g.id}
+                          onClick={() => nav(`/game/${g.id}`)}
+                          className="group flex items-center justify-between rounded-2xl border border-white/10 bg-white/6 px-4 py-3 text-left shadow-[0_0_26px_rgba(246,196,83,0.05)] backdrop-blur-md transition hover:-translate-y-0.5 hover:bg-white/10"
+                        >
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-semibold text-white">Room {g.id}</div>
+                            <div className="mt-1 text-xs leading-6 text-white/56">
+                              Players: {count}/{target}
+                              {target === 2 ? " (+shared)" : ""} • Sphere {g.chapter ?? 1} • Pulse {g.step ?? 1}
+                            </div>
+                          </div>
+                          <span className="ml-3 shrink-0 text-xs font-semibold text-amber-200/86 group-hover:text-amber-100">
+                            Spectate →
+                          </span>
+                        </button>
+                      );
+                    })
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+        </MysticPanel>
       </div>
-    </div>
+    </MysticScene>
   );
 }

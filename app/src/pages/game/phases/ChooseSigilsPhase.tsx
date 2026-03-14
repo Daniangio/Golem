@@ -2,6 +2,7 @@ import React from "react";
 import type { SigilDef } from "../../../game/locations";
 import type { PlayerSlot } from "../../../types";
 import { seatLabel } from "../gameUtils";
+import { MysticPanel, MysticScene, mysticButtonClass, mysticInfoPillClass } from "../../../components/chrome/MysticUI";
 
 type ChooseSigilsPhaseProps = {
   isMobileLayout: boolean;
@@ -109,96 +110,64 @@ export function ChooseSigilsPhase({
 
   if (isMobileLayout) {
     return (
-      <div className="relative h-full min-h-0 overflow-hidden rounded-2xl bg-slate-950/80">
-        <div className="relative z-10 flex h-full min-h-0 flex-col p-2">
+      <MysticScene background="Back2" className="h-full min-h-0 rounded-2xl">
+        <div className="flex h-full min-h-0 flex-col p-3">
           <div className="flex flex-wrap items-end justify-between gap-2">
             <div>
               <div className="text-sm font-extrabold text-white">Assign Sigils</div>
               <div className="mt-1 text-[11px] text-white/75">{subtitle}</div>
             </div>
             {isHost && (
-              <button
-                type="button"
-                onClick={onConfirm}
-                disabled={!canConfirm || busy}
-                className="rounded-2xl bg-emerald-500 px-3 py-2 text-xs font-extrabold text-white shadow-sm disabled:opacity-40"
-              >
+              <button type="button" onClick={onConfirm} disabled={!canConfirm || busy} className={mysticButtonClass("primary")}>
+                Confirm
+              </button>
+            )}
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span className={mysticInfoPillClass}>Revealed: {sigils.length}</span>
+            <span className={mysticInfoPillClass}>Chosen: {assignedCount}/{maxPicks}</span>
+            <span className={mysticInfoPillClass}>{tierLabel}</span>
+            <span className={mysticInfoPillClass}>Seat: {seatLabel(selectedSeat)}</span>
+          </div>
+
+          <MysticPanel className="mt-3 min-h-0 flex-1 overflow-y-auto p-3" glow="#8b5cf6">
+            {list}
+          </MysticPanel>
+        </div>
+      </MysticScene>
+    );
+  }
+
+  return (
+    <MysticScene background="Back2" className="h-full min-h-0 rounded-2xl">
+      <div className="flex h-full w-full min-h-0 flex-col p-4">
+        <MysticPanel className="flex min-h-0 flex-1 flex-col p-5" glow="#8b5cf6">
+          <div className="flex flex-wrap items-end justify-between gap-2">
+            <div>
+              <div className="text-sm font-extrabold text-white">Assign Sigils</div>
+              <div className="mt-1 text-xs text-white/70">{subtitle}</div>
+            </div>
+            {isHost && (
+              <button type="button" onClick={onConfirm} disabled={!canConfirm || busy} className={mysticButtonClass("primary")}>
                 Confirm Sigils
               </button>
             )}
           </div>
 
-          <div className="mt-2 flex flex-wrap items-center gap-2">
-            <span className={infoPillClass}>
-              Revealed: {sigils.length}
-            </span>
-            <span className={infoPillClass}>
-              Chosen: {assignedCount}/{maxPicks}
-            </span>
-            <span className={infoPillClass}>
-              {tierLabel}
-            </span>
-            <span className={infoPillClass}>
-              Active seat: {seatLabel(selectedSeat)}
-            </span>
-            <span className={infoPillClass}>
-              Assigning as: {seatLabel(assigningSeat)}
-            </span>
-            <span className={infoPillClass}>
-              Finalized only when P1 confirms
-            </span>
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <span className={mysticInfoPillClass}>Revealed: {sigils.length}</span>
+            <span className={mysticInfoPillClass}>Chosen: {assignedCount}/{maxPicks}</span>
+            <span className={mysticInfoPillClass}>{tierLabel}</span>
+            <span className={mysticInfoPillClass}>P1: {(assignedBySeat.p1 ?? []).length}</span>
+            <span className={mysticInfoPillClass}>P2: {(assignedBySeat.p2 ?? []).length}</span>
+            <span className={mysticInfoPillClass}>P3: {(assignedBySeat.p3 ?? []).length}</span>
+            <span className={mysticInfoPillClass}>Finalized only when P1 confirms</span>
           </div>
 
-          <div className="mt-2 min-h-0 flex-1 overflow-y-auto pr-1">{list}</div>
-        </div>
+          <div className="mt-4 min-h-0 flex-1 overflow-y-auto pr-1">{list}</div>
+        </MysticPanel>
       </div>
-    );
-  }
-
-  return (
-    <div className="flex h-full w-full min-h-0 flex-col rounded-xl bg-white/5 p-3 ring-1 ring-white/10">
-      <div className="flex flex-wrap items-end justify-between gap-2">
-        <div>
-          <div className="text-sm font-extrabold text-white">Assign Sigils</div>
-          <div className="mt-1 text-xs text-white/70">{subtitle}</div>
-        </div>
-        {isHost && (
-          <button
-            type="button"
-            onClick={onConfirm}
-            disabled={!canConfirm || busy}
-            className="rounded-2xl bg-emerald-500 px-4 py-2 text-sm font-extrabold text-white shadow-sm disabled:opacity-40"
-          >
-            Confirm Sigils
-          </button>
-        )}
-      </div>
-
-      <div className="mt-2 flex flex-wrap items-center gap-2">
-        <span className={infoPillClass}>
-          Revealed: {sigils.length}
-        </span>
-        <span className={infoPillClass}>
-          Chosen: {assignedCount}/{maxPicks}
-        </span>
-        <span className={infoPillClass}>
-          {tierLabel}
-        </span>
-        <span className={infoPillClass}>
-          P1: {(assignedBySeat.p1 ?? []).length}
-        </span>
-        <span className={infoPillClass}>
-          P2: {(assignedBySeat.p2 ?? []).length}
-        </span>
-        <span className={infoPillClass}>
-          P3: {(assignedBySeat.p3 ?? []).length}
-        </span>
-        <span className={infoPillClass}>
-          Finalized only when P1 confirms
-        </span>
-      </div>
-
-      <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">{list}</div>
-    </div>
+    </MysticScene>
   );
 }

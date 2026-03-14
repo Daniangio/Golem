@@ -41,7 +41,7 @@ export default function App() {
       className={
         inGame
           ? "h-screen bg-gradient-to-b from-slate-950 to-slate-900 text-white"
-          : "min-h-screen bg-gradient-to-b from-slate-50 to-slate-100 text-slate-900"
+          : "min-h-screen bg-[#050711] text-white"
       }
     >
       {user && (
@@ -52,7 +52,7 @@ export default function App() {
             className={`fixed right-3 top-3 z-[70] flex h-10 w-10 items-center justify-center rounded-full ring-1 transition ${
               inGame
                 ? "bg-white/10 text-white ring-white/15 hover:bg-white/15"
-                : "bg-white text-slate-900 shadow-sm ring-slate-200 hover:bg-slate-50"
+                : "border border-white/12 bg-slate-950/55 text-white shadow-[0_0_30px_rgba(34,211,238,0.12)] ring-white/10 backdrop-blur-md hover:bg-slate-900/80"
             }`}
             aria-label="Open settings"
             title="Settings"
@@ -137,7 +137,7 @@ export default function App() {
         </>
       )}
 
-      <div className={inGame ? "h-full w-full p-2" : "mx-auto max-w-5xl px-4 py-6"}>
+      <div className={inGame ? "h-full w-full p-2" : "min-h-screen w-full"}>
         <main className={inGame ? "h-full w-full" : ""}>
           <Routes>
             <Route path="/auth" element={<Auth />} />
@@ -186,8 +186,8 @@ export default function App() {
         </main>
 
         {!inGame && (
-          <footer className="mt-10 text-xs text-slate-500">
-            v0 — lobby + room start (gameplay and bots pending).
+          <footer className="fixed bottom-3 left-1/2 z-20 -translate-x-1/2 rounded-full border border-white/10 bg-slate-950/45 px-4 py-1.5 text-xs text-white/55 backdrop-blur-md">
+            v0 — lobby + room start
           </footer>
         )}
       </div>

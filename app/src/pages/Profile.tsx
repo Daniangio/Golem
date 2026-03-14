@@ -4,6 +4,13 @@ import { useNavigate } from "react-router-dom";
 import { subscribeMyGames, type GameSummary } from "../lib/firestoreGames";
 import { useAuthUser } from "../lib/useAuth";
 import { ensureUserProfile } from "../lib/users";
+import {
+  MysticPanel,
+  MysticScene,
+  mysticButtonClass,
+  mysticInfoPillClass,
+  mysticInputClass,
+} from "../components/chrome/MysticUI";
 
 export default function Profile() {
   const nav = useNavigate();
@@ -13,7 +20,6 @@ export default function Profile() {
   const [busy, setBusy] = useState(false);
   const [msg, setMsg] = useState<string | null>(null);
   const [displayName, setDisplayName] = useState(user?.displayName ?? "");
-
   const [games, setGames] = useState<GameSummary[]>([]);
 
   useEffect(() => {
@@ -51,7 +57,7 @@ export default function Profile() {
     try {
       await updateProfile(user, { displayName: displayName.trim().slice(0, 20) });
       await ensureUserProfile(user);
-      setMsg("Saved.");
+      setMsg("Display name updated.");
     } catch (e) {
       setMsg(String(e));
     } finally {
@@ -60,113 +66,122 @@ export default function Profile() {
   }
 
   return (
-    <div className="grid gap-6">
-      <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-        <div className="text-sm font-semibold text-slate-700">Account</div>
+    <MysticScene background="Back1" className="min-h-screen px-4 py-6 sm:px-6 lg:px-8">
+      <div className="mx-auto flex min-h-[calc(100vh-3rem)] max-w-7xl flex-col gap-6">
+        <div className="grid gap-6 xl:grid-cols-[minmax(340px,430px)_minmax(0,1fr)]">
+          <MysticPanel className="p-6 sm:p-7" glow="#67e8f9">
+            <div className={mysticInfoPillClass}>✦ Identity lattice</div>
+            <h1 className="mt-4 text-3xl font-black tracking-tight text-white sm:text-4xl">Profile</h1>
+            <p className="mt-3 text-sm leading-7 text-white/72">
+              Update the name shown in rooms, keep your identifiers visible, and track ongoing or finished runs from a
+              single screen.
+            </p>
 
-        <div className="mt-3 grid gap-3 sm:grid-cols-2">
-          <div className="rounded-xl bg-slate-50 p-3">
-            <div className="text-xs text-slate-500">UID</div>
-            <div className="mt-1 break-all font-mono text-xs text-slate-900">{uid}</div>
-          </div>
-          <div className="rounded-xl bg-slate-50 p-3">
-            <div className="text-xs text-slate-500">Email</div>
-            <div className="mt-1 break-all font-mono text-xs text-slate-900">{user?.email ?? "—"}</div>
-          </div>
-        </div>
+            <div className="mt-6 grid gap-3">
+              <div className="rounded-2xl border border-white/10 bg-white/6 p-4 backdrop-blur-md">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/52">UID</div>
+                <div className="mt-2 break-all font-mono text-xs text-white/82">{uid}</div>
+              </div>
+              <div className="rounded-2xl border border-white/10 bg-white/6 p-4 backdrop-blur-md">
+                <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/52">Email</div>
+                <div className="mt-2 break-all font-mono text-xs text-white/82">{user?.email ?? "—"}</div>
+              </div>
+              <button type="button" onClick={() => nav("/")} className={mysticButtonClass("ghost", true)}>
+                Return to lobby
+              </button>
+            </div>
+          </MysticPanel>
 
-        <div className="mt-4">
-          <label className="block text-sm font-medium text-slate-700">Display name</label>
-          <div className="mt-1 flex gap-2">
-            <input
-              value={displayName}
-              onChange={(e) => setDisplayName(e.target.value)}
-              placeholder="e.g. Dani"
-              className="w-full rounded-xl border border-slate-200 bg-white px-3 py-2 text-slate-900 shadow-sm outline-none focus:border-slate-400"
-            />
-            <button
-              onClick={onSaveName}
-              disabled={busy}
-              className="whitespace-nowrap rounded-xl bg-slate-900 px-4 py-2 font-semibold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-40"
-            >
-              Save
-            </button>
-          </div>
-          {msg && <div className="mt-2 text-sm text-slate-600">{msg}</div>}
-        </div>
-      </div>
+          <MysticPanel className="p-6 sm:p-7" glow="#f6c453">
+            <div className="flex items-center justify-between gap-3">
+              <div>
+                <div className="text-[11px] font-semibold uppercase tracking-[0.24em] text-white/52">Public presence</div>
+                <div className="mt-1 text-2xl font-black text-white">Display name</div>
+              </div>
+              <div className="flex gap-2">
+                <span className={mysticInfoPillClass}>Open {openGames.length}</span>
+                <span className={mysticInfoPillClass}>Finished {finishedGames.length}</span>
+              </div>
+            </div>
 
-      <div className="rounded-2xl bg-white p-5 shadow-sm ring-1 ring-slate-200">
-        <div className="flex items-baseline justify-between gap-2">
-          <div className="text-sm font-semibold text-slate-700">Game history</div>
-          <button
-            onClick={() => nav("/")}
-            className="rounded-full bg-slate-900/10 px-3 py-1 text-xs font-semibold text-slate-700"
-          >
-            Lobby
-          </button>
-        </div>
+            <div className="mt-6 grid gap-4 md:grid-cols-[minmax(0,1fr)_auto]">
+              <input
+                value={displayName}
+                onChange={(e) => setDisplayName(e.target.value)}
+                placeholder="e.g. Dani"
+                className={mysticInputClass}
+              />
+              <button onClick={onSaveName} disabled={busy} className={mysticButtonClass("primary")}>
+                Save
+              </button>
+            </div>
 
-        {sorted.length === 0 ? (
-          <p className="mt-2 text-sm text-slate-600">No games yet.</p>
-        ) : (
-          <div className="mt-3 space-y-4">
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Open games</div>
-              {openGames.length === 0 ? (
-                <p className="mt-1 text-sm text-slate-500">No open games.</p>
-              ) : (
-                <div className="mt-2 grid gap-2">
-                  {openGames.map((g) => (
-                    <button
-                      key={g.id}
-                      onClick={() => nav(`/game/${g.id}`)}
-                      className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-sm shadow-sm hover:bg-slate-50"
-                    >
-                      <div>
-                        <div className="font-semibold text-slate-800">Game {g.id}</div>
-                        <div className="text-xs text-slate-500">Status: {g.status}</div>
-                      </div>
-                      <span
-                        className={`text-xs font-semibold ${
-                          g.status === "active" ? "text-emerald-700" : "text-slate-500"
-                        }`}
+            {msg && (
+              <div className="mt-4 rounded-2xl border border-white/10 bg-white/6 px-4 py-3 text-sm text-white/78">
+                {msg}
+              </div>
+            )}
+
+            <div className="mt-6 grid gap-5 xl:grid-cols-2">
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.24em] text-white/44">Open games</div>
+                <div className="mt-3 grid gap-3">
+                  {openGames.length === 0 ? (
+                    <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/55">
+                      No open games.
+                    </div>
+                  ) : (
+                    openGames.map((g) => (
+                      <button
+                        key={g.id}
+                        onClick={() => nav(`/game/${g.id}`)}
+                        className="group flex items-center justify-between rounded-2xl border border-white/10 bg-white/6 px-4 py-3 text-left backdrop-blur-md transition hover:-translate-y-0.5 hover:bg-white/10"
                       >
-                        {g.status === "active" ? "Active" : "Lobby"}
-                      </span>
-                    </button>
-                  ))}
+                        <div>
+                          <div className="text-sm font-semibold text-white">Game {g.id}</div>
+                          <div className="mt-1 text-xs text-white/56">
+                            {g.status === "active" ? "Active run" : "Room in lobby"} • Sphere {g.chapter ?? 1}
+                          </div>
+                        </div>
+                        <span className="text-xs font-semibold text-cyan-200/85 group-hover:text-cyan-100">
+                          Open →
+                        </span>
+                      </button>
+                    ))
+                  )}
                 </div>
-              )}
-            </div>
+              </div>
 
-            <div>
-              <div className="text-xs font-semibold uppercase tracking-wide text-slate-500">Finished games</div>
-              {finishedGames.length === 0 ? (
-                <p className="mt-1 text-sm text-slate-500">No finished games.</p>
-              ) : (
-                <div className="mt-2 grid gap-2">
-                  {finishedGames.map((g) => (
-                    <button
-                      key={g.id}
-                      onClick={() => nav(`/game/${g.id}/post`)}
-                      className="flex items-center justify-between rounded-xl border border-slate-200 bg-white px-3 py-2 text-left text-sm shadow-sm hover:bg-slate-50"
-                    >
-                      <div>
-                        <div className="font-semibold text-slate-800">Game {g.id}</div>
-                        <div className="text-xs text-slate-500">Completed</div>
-                      </div>
-                      <span className="text-xs font-semibold text-slate-500">
-                        {g.endedReason === "win" ? "Win" : g.endedReason === "loss" ? "Loss" : "Done"}
-                      </span>
-                    </button>
-                  ))}
+              <div>
+                <div className="text-xs font-semibold uppercase tracking-[0.24em] text-white/44">Finished games</div>
+                <div className="mt-3 grid gap-3">
+                  {finishedGames.length === 0 ? (
+                    <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-sm text-white/55">
+                      No finished games.
+                    </div>
+                  ) : (
+                    finishedGames.map((g) => (
+                      <button
+                        key={g.id}
+                        onClick={() => nav(`/game/${g.id}/post`)}
+                        className="group flex items-center justify-between rounded-2xl border border-white/10 bg-white/6 px-4 py-3 text-left backdrop-blur-md transition hover:-translate-y-0.5 hover:bg-white/10"
+                      >
+                        <div>
+                          <div className="text-sm font-semibold text-white">Game {g.id}</div>
+                          <div className="mt-1 text-xs text-white/56">Completed run</div>
+                        </div>
+                        <span className="text-xs font-semibold text-amber-200/85 group-hover:text-amber-100">
+                          {g.endedReason === "win" ? "Win" : g.endedReason === "loss" ? "Loss" : "Done"}
+                        </span>
+                      </button>
+                    ))
+                  )}
                 </div>
-              )}
+              </div>
             </div>
-          </div>
-        )}
+          </MysticPanel>
+        </div>
       </div>
-    </div>
+    </MysticScene>
   );
 }
