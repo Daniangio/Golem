@@ -1,4 +1,5 @@
 import React, { useMemo, useState } from "react";
+import { MysticPanel, mysticButtonClass } from "../../../components/chrome/MysticUI";
 import { AnimatedTerrainCard } from "../../../components/game/AnimatedTerrainCard";
 import { CardBack } from "../../../components/game/CardBack";
 import { LocationShowcase } from "../../../components/game/LocationShowcase";
@@ -392,7 +393,7 @@ export function PlayPhase({
   );
 
   const deckPanel = (
-    <div className={`${isMobileLayout ? "rounded-2xl bg-black/35 p-2 ring-1 ring-white/15" : "w-[220px] shrink-0 rounded-2xl bg-white/5 p-2 ring-1 ring-white/10"}`}>
+    <MysticPanel className={`${isMobileLayout ? "" : "w-[220px] shrink-0"} p-2.5`} glow="#67e8f9">
       <div className="flex items-center justify-between">
         <div className="text-xs font-semibold text-white/80">{isMobileLayout ? "Law Deck" : "Terrain"}</div>
         <div className="text-[11px] font-semibold text-white/60">{terrainRemaining} left</div>
@@ -416,11 +417,11 @@ export function PlayPhase({
           <AnimatedTerrainCard terrain={terrain} hiddenState={terrainHiddenState} lastOutcomeResult={lastOutcomeResult} />
         )}
       </div>
-    </div>
+    </MysticPanel>
   );
 
   const reservoirPanel = (
-    <div className={`${isMobileLayout ? "rounded-2xl bg-black/35 p-2 ring-1 ring-white/15" : "w-[120px] shrink-0 rounded-2xl bg-white/5 p-2 ring-1 ring-white/10"}`}>
+    <MysticPanel className={`${isMobileLayout ? "" : "w-[120px] shrink-0"} p-2.5`} glow="#8b5cf6">
       <div className="text-center text-xs font-semibold text-white/80">Akashic Reservoir</div>
       <div className="mt-2 flex flex-wrap items-center justify-center gap-2">
         {reservoir ? (
@@ -445,11 +446,14 @@ export function PlayPhase({
         ) : null}
         {!reservoir && !reservoir2 ? <div className="text-sm text-white/60">No reservoir.</div> : null}
       </div>
-    </div>
+    </MysticPanel>
   );
 
   const playedCardsPanel = (
-    <div className={`${isMobileLayout ? "min-h-0 overflow-auto rounded-2xl bg-black/35 p-2 ring-1 ring-white/15" : "w-[330px] shrink-0 rounded-2xl bg-white/5 p-2 ring-1 ring-white/10"}`}>
+    <MysticPanel
+      className={`${isMobileLayout ? "min-h-0 overflow-auto" : "w-[330px] shrink-0"} p-2.5`}
+      glow="#f6c453"
+    >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="text-xs font-semibold text-white/80">Played cards</div>
         {pulsePhase === "selection" && canConfirmSelection && (
@@ -457,7 +461,7 @@ export function PlayPhase({
             type="button"
             onClick={onConfirmSelection}
             disabled={busy || !haveAllPlayed || exchangePending}
-            className="rounded-2xl bg-sky-400 px-3 py-1 text-[11px] font-extrabold text-slate-950 shadow-sm disabled:cursor-not-allowed disabled:opacity-40"
+            className={`${mysticButtonClass("secondary")} !rounded-2xl !px-3 !py-1 !text-[11px] disabled:cursor-not-allowed`}
           >
             Reveal
           </button>
@@ -467,14 +471,14 @@ export function PlayPhase({
             type="button"
             onClick={onEndActions}
             disabled={busy || !haveAllPlayed || exchangePending}
-            className="rounded-2xl bg-emerald-500 px-3 py-1 text-[11px] font-extrabold text-white shadow-sm disabled:cursor-not-allowed disabled:opacity-40"
+            className={`${mysticButtonClass("primary")} !rounded-2xl !px-3 !py-1 !text-[11px] disabled:cursor-not-allowed`}
           >
             End actions
           </button>
         )}
       </div>
       {playedCardsGrid}
-    </div>
+    </MysticPanel>
   );
 
   return (
@@ -511,9 +515,9 @@ export function PlayPhase({
                 frictionAnimClassName={frictionAnimClassName}
               />
             ) : (
-              <div className="w-[260px] shrink-0 rounded-2xl bg-slate-950/85 p-3 text-sm text-white/70 ring-1 ring-white/10">
+              <MysticPanel className="w-[260px] shrink-0 p-3 text-sm text-white/70" glow="#67e8f9">
                 No location chosen yet.
-              </div>
+              </MysticPanel>
             )}
           </div>
           <div className="flex min-h-0 min-w-0 flex-1 flex-col gap-2">
@@ -529,10 +533,8 @@ export function PlayPhase({
 
       {actionsSeat && pulsePhase === "actions" && (
         <div className="absolute inset-0 z-30 flex items-center justify-center bg-black/45 p-4" onMouseDown={() => setActionsSeat(null)}>
-          <div
-            className="w-full max-w-xs rounded-3xl bg-slate-950 p-4 text-white shadow-2xl ring-1 ring-white/15"
-            onMouseDown={(e) => e.stopPropagation()}
-          >
+          <MysticPanel className="w-full max-w-xs p-4 text-white shadow-2xl" glow="#8b5cf6">
+            <div onMouseDown={(e) => e.stopPropagation()}>
             <div className="flex items-center justify-between gap-2">
               <div>
                 <div className="text-[11px] font-semibold text-white/60">Pulse actions</div>
@@ -541,7 +543,7 @@ export function PlayPhase({
               <button
                 type="button"
                 onClick={() => setActionsSeat(null)}
-                className="rounded-full bg-white/10 px-2 py-1 text-[11px] font-semibold text-white/80 hover:bg-white/15"
+                className={`${mysticButtonClass("ghost")} !rounded-full !px-2 !py-1 !text-[11px]`}
               >
                 Close
               </button>
@@ -780,7 +782,8 @@ export function PlayPhase({
                 })()}
               {!hasAnyAction(actionsSeat) && <div className="text-[11px] text-white/60">No action available.</div>}
             </div>
-          </div>
+            </div>
+          </MysticPanel>
         </div>
       )}
     </div>

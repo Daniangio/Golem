@@ -151,19 +151,19 @@ export function PlayerBottomPanel({
 
   if (mobileLayout) {
     return (
-      <div className="relative z-30 flex min-h-0 flex-col overflow-visible rounded-3xl bg-white/8 p-2 ring-1 ring-white/15">
+      <div className="relative z-30 flex min-h-0 flex-col overflow-visible rounded-3xl border border-white/10 bg-slate-950/58 p-2 shadow-[0_18px_48px_rgba(1,6,18,0.35)] ring-1 ring-white/6 backdrop-blur-xl">
         <div className="mb-1 flex items-center justify-between gap-2">
           <div className="min-w-0 truncate text-[11px] font-extrabold text-white">
             {seatTag} • {playerName} {viewOnly ? <span className="font-semibold text-white/50">(view-only)</span> : null}
           </div>
-          <div className="shrink-0 rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold text-white/80 ring-1 ring-white/15">
+          <div className="shrink-0 rounded-full border border-white/10 bg-white/10 px-2 py-0.5 text-[10px] font-semibold text-white/80 ring-1 ring-white/10">
             🂠 {handCount}
           </div>
           {hiddenNote ? <div className="text-[10px] font-semibold text-white/45">{hiddenNote}</div> : null}
         </div>
 
         {message ? (
-          <div className="mb-1 max-h-14 overflow-auto rounded-2xl bg-white/10 px-2 py-1 text-[11px] ring-1 ring-white/10">{message}</div>
+          <div className="mb-1 max-h-14 overflow-auto rounded-2xl border border-white/10 bg-white/8 px-2 py-1 text-[11px] ring-1 ring-white/6 backdrop-blur-md">{message}</div>
         ) : null}
 
         <div className="grid min-h-0 flex-1 grid-cols-[minmax(0,1fr)_auto] items-end gap-2">
@@ -177,21 +177,21 @@ export function PlayerBottomPanel({
   const desktopMessageContent = message ?? desktopIdlePanel ?? <div className="text-[11px] text-white/40"> </div>;
 
   return (
-    <div className="relative z-30 flex min-h-0 flex-col overflow-visible rounded-3xl bg-white/5 p-2 ring-1 ring-white/10">
+    <div className="relative z-30 flex min-h-0 flex-col overflow-visible rounded-3xl border border-white/10 bg-slate-950/58 p-2 shadow-[0_24px_56px_rgba(1,6,18,0.38)] ring-1 ring-white/6 backdrop-blur-xl">
       <div className="grid min-h-0 flex-1 grid-cols-[minmax(140px,18%)_minmax(140px,28%)_minmax(0,1fr)_auto] items-stretch gap-2">
-        <div className="min-h-0 rounded-2xl bg-white/5 px-3 py-2 ring-1 ring-white/10">
-          <div className="text-[11px] font-semibold text-white/60">Hand</div>
+        <div className="min-h-0 rounded-2xl border border-white/10 bg-white/8 px-3 py-2 ring-1 ring-white/6 backdrop-blur-md">
+          <div className="text-[11px] font-semibold uppercase tracking-[0.22em] text-white/50">Hand</div>
           <div className="mt-1 flex items-center justify-between gap-2">
             <div className="min-w-0 truncate text-[12px] font-extrabold text-white">
               {seatTag} • {playerName} {viewOnly ? <span className="font-semibold text-white/50">(view-only)</span> : null}
             </div>
-            <div className="shrink-0 rounded-full bg-white/10 px-2 py-0.5 text-[10px] font-semibold text-white/80 ring-1 ring-white/15">
+            <div className="shrink-0 rounded-full border border-white/10 bg-white/10 px-2 py-0.5 text-[10px] font-semibold text-white/80 ring-1 ring-white/10">
               🂠 {handCount}
             </div>
           </div>
         </div>
 
-        <div className="min-h-0 overflow-auto rounded-2xl bg-white/5 px-3 py-2 ring-1 ring-white/10">
+        <div className="min-h-0 overflow-auto rounded-2xl border border-white/10 bg-white/8 px-3 py-2 ring-1 ring-white/6 backdrop-blur-md">
           {desktopMessageContent}
         </div>
 

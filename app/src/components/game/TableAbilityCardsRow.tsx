@@ -31,17 +31,17 @@ function AbilityFieldCard({
   const glowStyle = { ["--sigil-glow-color" as any]: accentColor } as React.CSSProperties;
 
   return (
-    <div className="group relative h-[138px] w-[104px] shrink-0">
+    <div className="group relative h-[144px] w-[108px] shrink-0 lg:h-[158px] lg:w-[118px]">
       <div className="sigil-glow-border h-full w-full rounded-2xl p-[1px]" style={glowStyle}>
-        <div className="flex h-full w-full flex-col rounded-2xl bg-slate-950/90 p-2 ring-1 ring-white/10">
+        <div className="flex h-full w-full flex-col rounded-2xl bg-slate-950/92 p-2.5 ring-1 ring-white/12 backdrop-blur-md">
           <div className="flex items-start justify-between gap-1">
-            <div className="text-[10px] font-extrabold text-white" style={truncStyle(2)}>
+            <div className="text-[10px] font-extrabold text-white lg:text-[11px]" style={truncStyle(2)}>
               {title}
             </div>
             {rightBadge}
           </div>
           {leftBadge ? <div className="mt-1">{leftBadge}</div> : null}
-          <div className="mt-1 text-[9px] leading-tight text-white/80" style={truncStyle(8)}>
+          <div className="mt-1 text-[9px] leading-tight text-white/82 lg:text-[10px]" style={truncStyle(8)}>
             {text}
           </div>
         </div>
@@ -75,8 +75,8 @@ export function TableAbilityCardsRow({
   const facultyAccent = part?.type === "compulsory" ? "#f59e0b" : "#9ca3af";
 
   return (
-    <div className="rounded-2xl bg-white/5 p-2 ring-1 ring-white/10">
-      <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-white/50">Assigned Faculty & Sigils</div>
+    <div className="rounded-[28px] border border-white/10 bg-slate-950/52 p-2.5 shadow-[0_16px_40px_rgba(3,8,20,0.32)] ring-1 ring-white/6 backdrop-blur-xl">
+      <div className="mb-1 text-[10px] font-semibold uppercase tracking-[0.22em] text-white/48">Assigned Faculty & Sigils</div>
       <div className="flex gap-2 overflow-x-auto overflow-y-visible pb-1">
         {part ? (
           <AbilityFieldCard

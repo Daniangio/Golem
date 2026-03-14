@@ -127,6 +127,33 @@ function manifestedCount(entry: { card?: PulseCard; extraCard?: PulseCard; addit
   return manifestedCards(entry).length;
 }
 
+function normalizePlayedEntry<T extends Record<string, any>>(entry: T): T {
+  if (!entry?.card) return entry;
+
+  const additionalCards = Array.isArray(entry.additionalCards)
+    ? entry.additionalCards.filter(Boolean)
+    : entry.extraCard
+      ? [entry.extraCard]
+      : [];
+
+  const next = { ...entry } as T & {
+    additionalCards?: PulseCard[];
+    extraCard?: PulseCard;
+    extraValueChoice?: number;
+  };
+
+  next.additionalCards = additionalCards;
+
+  if (additionalCards.length > 0) {
+    next.extraCard = additionalCards[0];
+  } else {
+    delete next.extraCard;
+    delete next.extraValueChoice;
+  }
+
+  return next;
+}
+
 function requiredManifestedCountForSeat(
   data: Pick<GameDoc, "locationId" | "partPicks" | "players"> & Partial<Pick<GameDoc, "gameMode">>,
   seat: PlayerSlot,
@@ -3105,22 +3132,20 @@ export async function swapWithReservoir(
         disableResonanceRefill: _oldDisableResonanceRefill,
         ...rest
       } = entry;
-      played[seat] = {
+      played[seat] = normalizePlayedEntry({
         ...rest,
         card: reservoir,
-        extraCard: additionalCards[0],
         additionalCards,
-      };
+      });
     } else {
       const targetIndex = additionalCards.findIndex((card) => card.id === replacedCard.id);
       if (targetIndex < 0) throw new Error("Selected manifested card cannot be swapped.");
       const nextAdditional = [...additionalCards];
       nextAdditional[targetIndex] = reservoir;
-      const nextEntry = {
+      const nextEntry = normalizePlayedEntry({
         ...entry,
-        extraCard: nextAdditional[0],
         additionalCards: nextAdditional,
-      } as any;
+      } as any);
       if (targetIndex === 0 && typeof nextEntry.extraValueChoice === "number") {
         delete nextEntry.extraValueChoice;
       }

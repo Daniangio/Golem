@@ -75,6 +75,7 @@ import { ChoosePartsPhase } from "./game/phases/ChoosePartsPhase";
 import { ChooseSigilsPhase } from "./game/phases/ChooseSigilsPhase";
 import { PlayPhase } from "./game/phases/PlayPhase";
 import { useMobileLayout } from "./game/hooks/useMobileLayout";
+import { MysticPanel, MysticScene, mysticInfoPillClass } from "../components/chrome/MysticUI";
 import {
   SLOTS,
   canControlSeat,
@@ -529,16 +530,44 @@ export default function Game() {
 
   if (err) {
     return (
-      <div className="rounded-2xl border border-rose-200 bg-rose-50 p-4 text-sm text-rose-900">
-        <div className="font-semibold">Error</div>
-        <div className="mt-1 break-words">{err}</div>
-      </div>
+      <MysticScene background="Back2" className="h-full min-h-0 rounded-[28px]">
+        <div className="flex h-full items-center justify-center p-4">
+          <MysticPanel className="max-w-lg p-6 text-white" glow="#fb7185">
+            <div className="font-semibold">Error</div>
+            <div className="mt-1 break-words text-sm text-white/80">{err}</div>
+          </MysticPanel>
+        </div>
+      </MysticScene>
     );
   }
 
-  if (!gameId) return <div className="text-sm text-slate-600">Missing game id.</div>;
-  if (game === undefined) return <div className="text-sm text-slate-600">Loading…</div>;
-  if (game === null) return <div className="text-sm text-slate-600">Game not found.</div>;
+  if (!gameId) {
+    return (
+      <MysticScene background="Back2" className="h-full min-h-0 rounded-[28px]">
+        <div className="flex h-full items-center justify-center p-4">
+          <MysticPanel className="p-6 text-sm text-white/80" glow="#67e8f9">Missing game id.</MysticPanel>
+        </div>
+      </MysticScene>
+    );
+  }
+  if (game === undefined) {
+    return (
+      <MysticScene background="Back2" className="h-full min-h-0 rounded-[28px]">
+        <div className="flex h-full items-center justify-center p-4">
+          <MysticPanel className="p-6 text-sm text-white/80" glow="#67e8f9">Loading…</MysticPanel>
+        </div>
+      </MysticScene>
+    );
+  }
+  if (game === null) {
+    return (
+      <MysticScene background="Back2" className="h-full min-h-0 rounded-[28px]">
+        <div className="flex h-full items-center justify-center p-4">
+          <MysticPanel className="p-6 text-sm text-white/80" glow="#67e8f9">Game not found.</MysticPanel>
+        </div>
+      </MysticScene>
+    );
+  }
 
   if (game.status === "lobby") {
     return (
@@ -1272,6 +1301,7 @@ export default function Game() {
   const locationImageUrl = imgSrc(location?.image ?? null);
   const showBottomHandPanel =
     game.phase !== "choose_location" && game.phase !== "choose_parts" && game.phase !== "choose_sigils";
+  const showMysticPlayShell = game.phase === "play";
   const isTwoPlayerSharedRun = targetPlayers === 2 && isSharedPseudoUid(players.p3 ?? null);
   const pseudoControllerUid = game.pseudoControllerUid ?? game.createdBy ?? null;
   const pseudoControllerName = pseudoControllerUid
@@ -1288,6 +1318,15 @@ export default function Game() {
     : showBottomHandPanel
       ? "grid-rows-[5%_5%_minmax(0,1fr)_26%]"
       : "grid-rows-[5%_5%_minmax(0,1fr)]";
+
+  function GameSurface({ children }: { children: React.ReactNode }) {
+    if (!showMysticPlayShell) return <>{children}</>;
+    return (
+      <MysticScene background="Back1" className="h-full min-h-0 rounded-[28px]">
+        {children}
+      </MysticScene>
+    );
+  }
 
   async function onLocationResolveAnimationDone() {
     if (!uid || !gameId || !isPlayer || !resolvingLocationId || confirmingLocationRef.current) return;
@@ -1696,9 +1735,10 @@ export default function Game() {
     </div>
   ) : null;
   return (
-    <div className="h-full w-full text-white">
+    <GameSurface>
+      <div className={`h-full w-full text-white ${showMysticPlayShell ? "p-2 sm:p-3" : ""}`}>
       <div className={`grid h-full gap-1 ${layoutRowsClass}`}>
-        <aside className="shrink-0 rounded-3xl bg-white/5 px-2 py-1 ring-1 ring-white/10">
+        <MysticPanel className="shrink-0 px-2 py-1" glow="#67e8f9">
           <div className="flex h-full items-center gap-2">
             {seatList.map((seat) => {
               const u = players[seat] ?? "";
@@ -1713,7 +1753,7 @@ export default function Game() {
                   onClick={clickable ? () => setActiveSeat(seat) : undefined}
                   className={`min-w-0 flex h-full flex-1 items-center rounded-2xl px-2 text-left text-[11px] font-semibold ring-1 transition ${
                     selected
-                      ? "bg-white/15 text-white ring-white/30"
+                      ? "bg-cyan-300/16 text-white ring-cyan-200/35"
                       : "bg-white/5 text-white/80 ring-white/10 hover:bg-white/10 hover:ring-white/20"
                   } disabled:opacity-40`}
                   title={n}
@@ -1723,21 +1763,21 @@ export default function Game() {
               );
             })}
           </div>
-        </aside>
+        </MysticPanel>
 
-        <div className="shrink-0 rounded-3xl bg-white/5 px-2 py-1 ring-1 ring-white/10">
+        <MysticPanel className="shrink-0 px-2 py-1" glow="#f6c453">
           <div className="flex h-full items-center gap-2">
             {(game.phase !== "play" || isMobileLayout) && (
               <>
-                <div className="shrink-0 rounded-2xl bg-white/5 px-2 py-1 text-[10px] font-extrabold text-white ring-1 ring-white/10">
+                <div className={`${mysticInfoPillClass} shrink-0 !px-2 !py-1 !text-[10px] !font-extrabold`}>
                   ✦ {spark}
                 </div>
-                <div className="shrink-0 rounded-2xl bg-white/5 px-2 py-1 text-[10px] font-extrabold text-white ring-1 ring-white/10">
+                <div className={`${mysticInfoPillClass} shrink-0 !px-2 !py-1 !text-[10px] !font-extrabold`}>
                   ⟁ {friction}
                 </div>
               </>
             )}
-            <div className="shrink-0 rounded-2xl bg-white/5 px-2 py-1 text-[10px] font-semibold text-white/70 ring-1 ring-white/10">
+            <div className={`${mysticInfoPillClass} shrink-0 !px-2 !py-1 !text-[10px]`}>
               Sphere <span className="ml-1 font-extrabold text-white">{sphere}</span>
             </div>
             <div className={`min-w-0 flex-1 truncate font-semibold text-white/70 ${isMobileLayout ? "text-[10px]" : "text-[11px]"}`}>
@@ -1783,12 +1823,12 @@ export default function Game() {
                   <span className="font-semibold text-white/85">{pseudoControllerName}</span>
                 )}
               </div>
-            )}
+                )}
             {isMobileLayout && location?.rule ? (
               <button
                 type="button"
                 onClick={() => setShowLocationInfoModal(true)}
-                className="shrink-0 rounded-xl bg-white/10 px-2 py-1 text-[11px] font-extrabold text-white ring-1 ring-white/10 hover:bg-white/15"
+                className="shrink-0 rounded-xl border border-white/10 bg-white/10 px-2 py-1 text-[11px] font-extrabold text-white ring-1 ring-white/6 hover:bg-white/15"
                 aria-label="Open location rule"
                 title="Location rule"
               >
@@ -1803,16 +1843,16 @@ export default function Game() {
                   void onSurrender();
                 }}
                 disabled={busy}
-                className="shrink-0 rounded-xl bg-rose-500/90 px-2 py-1 text-[11px] font-extrabold text-white ring-1 ring-rose-200/30 hover:bg-rose-400 disabled:opacity-50"
+                className="shrink-0 rounded-xl border border-rose-200/20 bg-rose-500/80 px-2 py-1 text-[11px] font-extrabold text-white ring-1 ring-rose-200/20 hover:bg-rose-400 disabled:opacity-50"
                 title="Surrender game"
               >
                 Surrender
               </button>
             )}
           </div>
-        </div>
+        </MysticPanel>
 
-        <section className="relative z-10 min-h-0 rounded-2xl bg-white/5 p-1 ring-1 ring-white/10">
+        <MysticPanel className="relative z-10 min-h-0 p-1" glow="#8b5cf6">
           <div className="grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] grid-cols-1 gap-0">
             <div className="min-h-0 space-y-1">
               {game.phase !== "choose_location" &&
@@ -2224,7 +2264,7 @@ export default function Game() {
                 )}
               </div>
             </div>
-          </section>
+          </MysticPanel>
 
         {showBottomHandPanel && (
           <PlayerBottomPanel
@@ -2506,6 +2546,7 @@ export default function Game() {
       <GameNoticeToast notice={activeNotice} />
 
       {/* Communion exchange now lives in the bottom hand panel (non-blocking). */}
-    </div>
+      </div>
+    </GameSurface>
   );
 }
